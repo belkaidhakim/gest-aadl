@@ -95,7 +95,7 @@ export function useAppRoute(role: UserRole) {
     (tab: AppTab, forcePortal?: 'bureau' | 'resident') => {
       const targetPortal = forcePortal || (isBureauRole(role) && parsed.portal === 'bureau' ? 'bureau' : 'resident');
       const nextPath =
-        targetPortal === 'bureau' && isBureauRole(role)
+        targetPortal === 'bureau' && (forcePortal === 'bureau' || isBureauRole(role))
           ? TAB_TO_PATH_BUREAU[tab] || '/bureau'
           : TAB_TO_PATH_RESIDENT[tab] || '/resident';
 

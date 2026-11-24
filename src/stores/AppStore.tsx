@@ -32,6 +32,7 @@ import {
   addTransactionRemote,
   addVendorRemote,
   addVoteRemote,
+  appendLocalAuditLog,
   castVoteRemote,
   completePreventiveRemote,
   createBuildingRemote,
@@ -189,6 +190,27 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
   }, []);
 
+  const logLocal = useCallback(
+    (
+      action: string,
+      entityType: string,
+      summary: string,
+      amountDZD?: number,
+      actorOverride?: { fullName: string; role: UserRole }
+    ) => {
+      if (serverConnected) return;
+      appendLocalAuditLog(
+        activeBuildingId,
+        actorOverride || { fullName: user.fullName, role },
+        action,
+        entityType,
+        summary,
+        amountDZD
+      );
+    },
+    [serverConnected, activeBuildingId, user.fullName, role]
+  );
+
   const refreshFromServer = useCallback(
     async (buildingIdOverride?: string) => {
       const status = await fetchServerStatus();
@@ -312,9 +334,15 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
       persistLocal(next, activeBuildingId);
+      logLocal(
+        'RECORD_PAYMENT',
+        'payment',
+        `Encaissement ${payment.receiptNumber} — ${payment.apartmentNumber} (${payment.month})`,
+        payment.amountDZD
+      );
       toast.success(`${payment.receiptNumber} enregistré`);
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const addIncident = useCallback(
@@ -327,9 +355,10 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
       persistLocal({ ...data, incidents: [incident, ...data.incidents] }, activeBuildingId);
+      logLocal('REPORT_INCIDENT', 'incident', `Signalement panne : ${incident.title} (${incident.location})`);
       toast.success(incident.title);
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const reportResidentIncident = useCallback(
@@ -360,10 +389,17 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         quotes: [],
       };
       persistLocal({ ...data, incidents: [localInc, ...data.incidents] }, activeBuildingId);
+      logLocal(
+        'REPORT_INCIDENT',
+        'incident',
+        `Signalement panne : ${localInc.title} (${localInc.location})`,
+        undefined,
+        { fullName: localInc.reportedBy, role: 'resident' }
+      );
       toast.success(localInc.title);
       return true;
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const updateIncidentStatus = useCallback(
@@ -375,6 +411,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           return;
         }
       }
+      const targetInc = data.incidents.find((i) => i.id === incidentId);
       const updatedIncidents = data.incidents.map((inc) =>
         inc.id === incidentId
           ? {
@@ -389,7 +426,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       let updatedTransactions = [...data.transactions];
       if (newStatus === 'resolu' && actualCost && actualCost > 0) {
-        const inc = data.incidents.find((i) => i.id === incidentId);
+        const inc = targetInc;
         const newTx: Transaction = {
           id: `tx-inc-${incidentId}-${Date.now()}`,
           date: new Date().toISOString().slice(0, 10),
@@ -409,9 +446,15 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       persistLocal({ ...data, incidents: updatedIncidents, transactions: updatedTransactions }, activeBuildingId);
+      logLocal(
+        newStatus === 'resolu' ? 'RESOLVE_INCIDENT' : 'UPDATE_INCIDENT',
+        'incident',
+        `Incident "${targetInc?.title || incidentId}" -> ${newStatus}`,
+        actualCost
+      );
       toast.success(newStatus === 'resolu' ? 'Incident clôturé' : 'Statut mis à jour');
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const addIncidentQuote = useCallback(
@@ -542,9 +585,15 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
       persistLocal({ ...data, transactions: [tx, ...data.transactions] }, activeBuildingId);
+      logLocal(
+        tx.type === 'recette' ? 'ADD_INCOME' : 'ADD_EXPENSE',
+        'transaction',
+        `${tx.category} : ${tx.description}`,
+        tx.amountDZD
+      );
       toast.success(tx.description);
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const deleteTransaction = useCallback(
@@ -556,10 +605,17 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           return;
         }
       }
+      const deletedTx = data.transactions.find((t) => t.id === txId);
       persistLocal({ ...data, transactions: data.transactions.filter((t) => t.id !== txId) }, activeBuildingId);
+      logLocal(
+        'DELETE_TRANSACTION',
+        'transaction',
+        `Suppression écriture : ${deletedTx?.description || txId}`,
+        deletedTx?.amountDZD
+      );
       toast.info('Écriture supprimée');
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const updateBudgetPlan = useCallback(
@@ -572,9 +628,10 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
       persistLocal({ ...data, budgetPlan }, activeBuildingId);
+      logLocal('UPDATE_BUDGET', 'budget', 'Mise à jour du budget prévisionnel annuel');
       toast.success('Budget mis à jour');
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const uploadAttachment = useCallback(
@@ -734,9 +791,10 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         { ...data, apartments: data.apartments.map((a) => (a.id === apt.id ? apt : a)) },
         activeBuildingId
       );
+      logLocal('UPDATE_APARTMENT', 'apartment', `Fiche ${apt.number} (${apt.resident.name}) modifiée`);
       toast.success(`${apt.number} mis à jour`);
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const updateBuilding = useCallback(
@@ -750,9 +808,10 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
       persistLocal({ ...data, building: nextBuilding }, activeBuildingId);
+      logLocal('UPDATE_BUILDING', 'building', `Mise à jour paramètres ${nextBuilding.buildingNumber}`);
       toast.success('Paramètres enregistrés');
     },
-    [data, serverConnected, activeBuildingId, persistLocal, toast]
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
   const resetFinancials = useCallback(async () => {
@@ -772,8 +831,9 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }
     persistLocal(zeroed, activeBuildingId);
+    logLocal('RESET_FINANCIALS', 'building', 'Remise à zéro comptable (0 DZD)');
     toast.success('Recettes, dépenses et exercices remis à 0 DZD');
-  }, [data, serverConnected, activeBuildingId, persistLocal, toast]);
+  }, [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]);
 
   const resetData = useCallback(async () => {
     const reset = resetAppDataToDefaults();

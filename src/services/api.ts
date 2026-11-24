@@ -26,6 +26,8 @@ import { normalizeAppData } from '../utils/storage';
 const TOKEN_KEY = 'gest_aadl_auth_token';
 const LOCAL_SESSION_KEY = 'gest_aadl_local_session_v1';
 const LOCAL_PASSWORDS_KEY = 'gest_aadl_local_passwords_v1';
+const LOCAL_USERS_KEY = 'gest_aadl_local_users_v1';
+const LOCAL_AUDIT_KEY = 'gest_aadl_local_audit_v1';
 
 export interface ServerStatus {
   connected: boolean;
@@ -34,32 +36,56 @@ export interface ServerStatus {
   isDefaultPassword: boolean;
 }
 
-const LOCAL_BUREAU_ACCOUNTS: Record<
-  string,
-  { id: string; username: string; fullName: string; role: BureauRole; defaultPassword: string }
-> = {
-  president: {
+const DEFAULT_LOCAL_PASSWORDS: Record<string, string> = {
+  president: 'syndic2026',
+  tresorier: 'tresorier2026',
+  technique: 'tech2026',
+};
+
+const DEFAULT_LOCAL_USERS: ManagedUser[] = [
+  {
     id: 'usr-president',
     username: 'president',
     fullName: 'M. MELLIKECHE FERHAT',
     role: 'president',
-    defaultPassword: 'syndic2026',
+    createdAt: '2026-11-01T00:00:00.000Z',
   },
-  tresorier: {
+  {
     id: 'usr-tresorier',
     username: 'tresorier',
     fullName: 'M. HAMOUDI NOURDINE',
     role: 'treasurer',
-    defaultPassword: 'tresorier2026',
+    createdAt: '2026-11-01T00:00:00.000Z',
   },
-  technique: {
+  {
     id: 'usr-technique',
     username: 'technique',
     fullName: 'M. BELKACEMI OMAR',
     role: 'technical',
-    defaultPassword: 'tech2026',
+    createdAt: '2026-11-01T00:00:00.000Z',
   },
-};
+];
+
+function getLocalUsers(): ManagedUser[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_USERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed as ManagedUser[];
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_LOCAL_USERS;
+}
+
+function saveLocalUsers(users: ManagedUser[]): void {
+  try {
+    localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+  } catch {
+    // ignore
+  }
+}
 
 function getLocalPasswords(): Record<string, string> {
   try {
@@ -72,6 +98,19 @@ function getLocalPasswords(): Record<string, string> {
     // ignore
   }
   return {};
+}
+
+function saveLocalPasswords(passwords: Record<string, string>): void {
+  try {
+    localStorage.setItem(LOCAL_PASSWORDS_KEY, JSON.stringify(passwords));
+  } catch {
+    // ignore
+  }
+}
+
+function getLocalPasswordForUser(username: string): string | undefined {
+  const overrides = getLocalPasswords();
+  return overrides[username] ?? DEFAULT_LOCAL_PASSWORDS[username];
 }
 
 function getLocalSessionName(): string {
@@ -92,14 +131,57 @@ function getLocalServerStatus(): ServerStatus {
       isDefaultPassword: false,
     };
   }
-  const acct = LOCAL_BUREAU_ACCOUNTS[sessionName] || LOCAL_BUREAU_ACCOUNTS.president;
+  const users = getLocalUsers();
+  const acct = users.find((u) => u.username === sessionName) || users[0] || DEFAULT_LOCAL_USERS[0];
   const overrides = getLocalPasswords();
+  const usesDefaultPwd =
+    Boolean(DEFAULT_LOCAL_PASSWORDS[acct.username]) && !overrides[acct.username];
   return {
     connected: false,
     role: acct.role,
     user: { id: acct.id, username: acct.username, fullName: acct.fullName, role: acct.role },
-    isDefaultPassword: !overrides[acct.username],
+    isDefaultPassword: usesDefaultPwd,
   };
+}
+
+export function appendLocalAuditLog(
+  buildingId: string,
+  actor: { fullName: string; role: UserRole },
+  action: string,
+  entityType: string,
+  summary: string,
+  amountDZD?: number
+): void {
+  try {
+    const raw = localStorage.getItem(LOCAL_AUDIT_KEY);
+    const existing: AuditLogEntry[] = raw ? JSON.parse(raw) : [];
+    const entry: AuditLogEntry = {
+      id: `aud-local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      buildingId,
+      timestamp: new Date().toISOString(),
+      actorName: actor.fullName || 'Syndic',
+      actorRole: actor.role,
+      action,
+      entityType,
+      summary,
+      ...(amountDZD !== undefined ? { amountDZD } : {}),
+    };
+    const next = [entry, ...(Array.isArray(existing) ? existing : [])].slice(0, 250);
+    localStorage.setItem(LOCAL_AUDIT_KEY, JSON.stringify(next));
+  } catch {
+    // ignore
+  }
+}
+
+function getLocalAuditLogs(buildingId: string, limit = 150): AuditLogEntry[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_AUDIT_KEY);
+    const parsed: AuditLogEntry[] = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((e) => e.buildingId === buildingId).slice(0, limit);
+  } catch {
+    return [];
+  }
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -368,6 +450,9 @@ export const fetchAuditLogsRemote = async (buildingId: string, limit = 150): Pro
   const res = await apiRequest<{ logs: AuditLogEntry[] }>(
     `/api/audit-logs?buildingId=${encodeURIComponent(buildingId)}&limit=${limit}`
   );
+  if (!res.ok && res.offline) {
+    return getLocalAuditLogs(buildingId, limit);
+  }
   return res.ok && res.data ? res.data.logs : [];
 };
 
@@ -380,12 +465,11 @@ export async function loginBureau(username: string, password: string): Promise<{
   });
   if (!res.ok) {
     if (res.offline) {
-      const acct = LOCAL_BUREAU_ACCOUNTS[cleanUser];
-      const overrides = getLocalPasswords();
-      const expectedPassword = acct ? overrides[cleanUser] || acct.defaultPassword : null;
-      if (acct && password === expectedPassword) {
+      const acct = getLocalUsers().find((u) => u.username.toLowerCase() === cleanUser);
+      const expectedPassword = acct ? getLocalPasswordForUser(acct.username) : undefined;
+      if (acct && expectedPassword !== undefined && password === expectedPassword) {
         try {
-          localStorage.setItem(LOCAL_SESSION_KEY, cleanUser);
+          localStorage.setItem(LOCAL_SESSION_KEY, acct.username);
         } catch {
           // ignore
         }
@@ -424,26 +508,26 @@ export async function changeBureauPassword(
   });
   if (!res.ok && res.offline) {
     const sessionName = getLocalSessionName();
-    const acct = LOCAL_BUREAU_ACCOUNTS[sessionName];
+    const acct = getLocalUsers().find((u) => u.username === sessionName);
     if (!acct) {
       return { ok: false, error: 'Accès réservé aux membres du Bureau.' };
     }
-    const overrides = getLocalPasswords();
-    const expected = overrides[acct.username] || acct.defaultPassword;
-    if (currentPassword !== expected) {
+    const expected = getLocalPasswordForUser(acct.username);
+    if (expected === undefined || currentPassword !== expected) {
       return { ok: false, error: 'Mot de passe actuel incorrect.' };
     }
     if (!newPassword || newPassword.trim().length < 6) {
       return { ok: false, error: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' };
     }
-    try {
-      localStorage.setItem(
-        LOCAL_PASSWORDS_KEY,
-        JSON.stringify({ ...overrides, [acct.username]: newPassword.trim() })
-      );
-    } catch {
-      // ignore
-    }
+    const overrides = getLocalPasswords();
+    saveLocalPasswords({ ...overrides, [acct.username]: newPassword.trim() });
+    appendLocalAuditLog(
+      'bldg-e36',
+      { fullName: acct.fullName, role: acct.role },
+      'CHANGE_PASSWORD',
+      'user',
+      `Mot de passe modifié pour @${acct.username}`
+    );
     return { ok: true };
   }
   return res;
@@ -451,19 +535,87 @@ export async function changeBureauPassword(
 
 export const fetchUsersRemote = async (): Promise<ManagedUser[]> => {
   const res = await apiRequest<{ users: ManagedUser[] }>('/api/users');
+  if (!res.ok && res.offline) {
+    return getLocalUsers();
+  }
   return res.ok && res.data ? res.data.users : [];
 };
 
-export const createUserRemote = (
+export const createUserRemote = async (
   buildingId: string,
   payload: { username: string; fullName: string; role: BureauRole; password: string }
-) =>
-  apiRequest<{ user: ManagedUser }>(`/api/users?buildingId=${encodeURIComponent(buildingId)}`, {
+): Promise<{ ok: boolean; data?: { user: ManagedUser }; error?: string }> => {
+  const res = await apiRequest<{ user: ManagedUser }>(`/api/users?buildingId=${encodeURIComponent(buildingId)}`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  if (!res.ok && res.offline) {
+    const cleanUsername = String(payload.username || '').trim().toLowerCase();
+    if (!cleanUsername || cleanUsername.length < 3) {
+      return { ok: false, error: "L'identifiant doit contenir au moins 3 caractères." };
+    }
+    if (!['president', 'treasurer', 'technical'].includes(payload.role)) {
+      return { ok: false, error: 'Rôle invalide.' };
+    }
+    if (!payload.password || payload.password.trim().length < 6) {
+      return { ok: false, error: 'Le mot de passe doit contenir au moins 6 caractères.' };
+    }
+    const users = getLocalUsers();
+    if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
+      return { ok: false, error: 'Cet identifiant existe déjà.' };
+    }
+    const created: ManagedUser = {
+      id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      username: cleanUsername,
+      fullName: payload.fullName.trim(),
+      role: payload.role,
+      createdAt: new Date().toISOString(),
+    };
+    saveLocalUsers([...users, created]);
+    saveLocalPasswords({ ...getLocalPasswords(), [cleanUsername]: payload.password.trim() });
+    const status = getLocalServerStatus();
+    appendLocalAuditLog(
+      buildingId,
+      { fullName: status.user.fullName, role: status.role },
+      'CREATE_USER',
+      'user',
+      `Création compte ${cleanUsername} (${payload.role})`
+    );
+    return { ok: true, data: { user: created } };
+  }
+  return res;
+};
 
-export const deleteUserRemote = (buildingId: string, userId: string) =>
-  apiRequest(`/api/users/${encodeURIComponent(userId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+export const deleteUserRemote = async (
+  buildingId: string,
+  userId: string
+): Promise<{ ok: boolean; error?: string }> => {
+  const res = await apiRequest(`/api/users/${encodeURIComponent(userId)}?buildingId=${encodeURIComponent(buildingId)}`, {
     method: 'DELETE',
   });
+  if (!res.ok && res.offline) {
+    const users = getLocalUsers();
+    const target = users.find((u) => u.id === userId);
+    if (!target) return { ok: false, error: 'Compte introuvable.' };
+    const status = getLocalServerStatus();
+    if (target.id === status.user.id || target.username === status.user.username) {
+      return { ok: false, error: 'Impossible de supprimer votre propre compte actif.' };
+    }
+    if (target.role === 'president' && users.filter((u) => u.role === 'president').length <= 1) {
+      return { ok: false, error: 'Au moins un compte Président doit rester actif.' };
+    }
+    saveLocalUsers(users.filter((u) => u.id !== userId));
+    const overrides = { ...getLocalPasswords() };
+    delete overrides[target.username];
+    saveLocalPasswords(overrides);
+    appendLocalAuditLog(
+      buildingId,
+      { fullName: status.user.fullName, role: status.role },
+      'DELETE_USER',
+      'user',
+      `Suppression compte ${target.username}`
+    );
+    return { ok: true };
+  }
+  return res;
+};

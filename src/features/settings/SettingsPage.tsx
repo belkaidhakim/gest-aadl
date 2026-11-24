@@ -34,7 +34,7 @@ export const SettingsPage: React.FC = () => {
     data,
     buildings,
     activeBuildingId,
-    serverConnected,
+    refreshFromServer,
     switchBuilding,
     createNewBuilding,
     updateBuilding,
@@ -99,10 +99,9 @@ export const SettingsPage: React.FC = () => {
   });
 
   const loadUsers = useCallback(async () => {
-    if (!serverConnected) return;
     const rows = await fetchUsersRemote();
     setUsers(rows);
-  }, [serverConnected]);
+  }, []);
 
   useEffect(() => {
     if (subTab === 'rbac') loadUsers();
@@ -129,6 +128,7 @@ export const SettingsPage: React.FC = () => {
     e.preventDefault();
     const res = await changeBureauPassword(pwdForm.current, pwdForm.next);
     if (res.ok) {
+      await refreshFromServer();
       toast.success(
         lang === 'ar' ? 'تم تحديث كلمة المرور بنجاح' : 'Mot de passe mis à jour avec succès'
       );
@@ -503,47 +503,37 @@ export const SettingsPage: React.FC = () => {
               </h3>
             </div>
 
-            {!serverConnected ? (
-              <p className="text-slate-500">
-                {lang === 'ar'
-                  ? 'تغيير كلمة المرور متاح عند الاتصال بخادم SQLite.'
-                  : 'La gestion des mots de passe est active avec le serveur SQLite.'}
-              </p>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
-                    {lang === 'ar' ? 'كلمة المرور الحالية' : 'Mot de passe actuel'}
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={pwdForm.current}
-                    onChange={(e) => setPwdForm({ ...pwdForm, current: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
-                    {lang === 'ar' ? 'كلمة المرور الجديدة (6 أحرف على الأقل)' : 'Nouveau mot de passe (min 6 car.)'}
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={pwdForm.next}
-                    onChange={(e) => setPwdForm({ ...pwdForm, next: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full py-2.5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 text-white font-semibold cursor-pointer"
-                >
-                  {t('changePasswordBtn')}
-                </button>
-              </>
-            )}
+            <div>
+              <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
+                {lang === 'ar' ? 'كلمة المرور الحالية' : 'Mot de passe actuel'}
+              </label>
+              <input
+                type="password"
+                required
+                value={pwdForm.current}
+                onChange={(e) => setPwdForm({ ...pwdForm, current: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
+                {lang === 'ar' ? 'كلمة المرور الجديدة (6 أحرف على الأقل)' : 'Nouveau mot de passe (min 6 car.)'}
+              </label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={pwdForm.next}
+                onChange={(e) => setPwdForm({ ...pwdForm, next: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-2.5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 text-white font-semibold cursor-pointer"
+            >
+              {t('changePasswordBtn')}
+            </button>
           </form>
         </div>
       )}
@@ -557,41 +547,33 @@ export const SettingsPage: React.FC = () => {
               <span>{lang === 'ar' ? 'أعضاء المكتب المسجلون' : 'Comptes du Bureau Syndic (RBAC)'}</span>
             </h3>
 
-            {!serverConnected ? (
-              <p className="text-xs text-slate-500">
-                {lang === 'ar'
-                  ? 'إدارة الحسابات متاحة عند الاتصال بالخادم.'
-                  : 'Disponible lorsque le serveur SQLite est connecté.'}
-              </p>
-            ) : (
-              <div className="space-y-2.5">
-                {users.map((u) => (
-                  <div
-                    key={u.id}
-                    className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 text-xs"
-                  >
-                    <div>
-                      <div className="font-bold text-slate-900 dark:text-white">{u.fullName}</div>
-                      <div className="text-slate-500 font-mono mt-0.5">
-                        @{u.username} ·{' '}
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold">
-                          {u.role}
-                        </span>
-                      </div>
+            <div className="space-y-2.5">
+              {users.map((u) => (
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/70 text-xs"
+                >
+                  <div>
+                    <div className="font-bold text-slate-900 dark:text-white">{u.fullName}</div>
+                    <div className="text-slate-500 font-mono mt-0.5">
+                      @{u.username} ·{' '}
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold">
+                        {u.role}
+                      </span>
                     </div>
-
-                    {u.username !== 'president' && (
-                      <button
-                        onClick={() => handleDeleteUser(u)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {u.username !== 'president' && (
+                    <button
+                      onClick={() => handleDeleteUser(u)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           <form
@@ -661,8 +643,7 @@ export const SettingsPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={!serverConnected}
-              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>{lang === 'ar' ? 'إنشاء الحساب' : 'Créer le compte'}</span>

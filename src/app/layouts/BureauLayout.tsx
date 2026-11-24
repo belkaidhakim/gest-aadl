@@ -254,15 +254,13 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
             {(!collapsed || isMobile) && <span>{t('switchToResidentPortal')}</span>}
           </button>
 
-          {serverConnected && (
-            <button
-              onClick={switchToResident}
-              title={t('logoutBtn')}
-              className="p-2 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 rounded-lg cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <button
+            onClick={switchToResident}
+            title={t('logoutBtn')}
+            className="p-2 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 rounded-lg cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     </div>
