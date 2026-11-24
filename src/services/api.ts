@@ -311,6 +311,17 @@ export const recordPaymentRemote = (buildingId: string, payment: PaymentRecord) 
     body: JSON.stringify({ payment }),
   });
 
+export const updatePaymentRemote = (buildingId: string, payment: PaymentRecord) =>
+  apiRequest(`/api/payments/${encodeURIComponent(payment.id)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ payment }),
+  });
+
+export const deletePaymentRemote = (buildingId: string, paymentId: string) =>
+  apiRequest(`/api/payments/${encodeURIComponent(paymentId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'DELETE',
+  });
+
 export const addTransactionRemote = (buildingId: string, transaction: Transaction) =>
   apiRequest(`/api/transactions?buildingId=${encodeURIComponent(buildingId)}`, {
     method: 'POST',

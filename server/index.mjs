@@ -18,6 +18,7 @@ import {
   completePreventiveTaskAtomic,
   createBuilding,
   createUser,
+  deletePaymentAtomic,
   deleteTransaction,
   deleteUser,
   getAuditLogs,
@@ -38,6 +39,7 @@ import {
   updateBuildingInfo,
   updateHouseRules,
   updateIncidentStatusAtomic,
+  updatePaymentAtomic,
 } from './db.mjs';
 
 const ROOT_DIR = path.resolve(import.meta.dirname, '..');
@@ -457,6 +459,25 @@ const server = http.createServer(async (req, res) => {
         if (!body?.payment?.id) return sendJson(res, 400, { error: 'Paiement invalide.' });
         const resObj = recordPaymentAtomic(buildingId, body.payment, actor);
         return sendJson(res, 201, { ok: true, ...resObj });
+      }
+
+      if (urlPath.startsWith('/api/payments/') && method === 'PUT') {
+        if (!canFinance(actor.role)) return sendJson(res, 403, { error: 'Réservé au Président ou Trésorier.' });
+        const paymentId = decodeURIComponent(urlPath.slice('/api/payments/'.length));
+        const body = await readJsonBody(req);
+        const payment = body?.payment;
+        if (!paymentId || !payment || !Number.isFinite(Number(payment.amountDZD)) || Number(payment.amountDZD) <= 0) {
+          return sendJson(res, 400, { error: 'Cotisation ou montant invalide.' });
+        }
+        const resObj = updatePaymentAtomic(buildingId, paymentId, payment, actor);
+        return sendJson(res, resObj ? 200 : 404, { ok: Boolean(resObj), ...(resObj || { error: 'Cotisation introuvable.' }) });
+      }
+
+      if (urlPath.startsWith('/api/payments/') && method === 'DELETE') {
+        if (!canFinance(actor.role)) return sendJson(res, 403, { error: 'Réservé au Président ou Trésorier.' });
+        const paymentId = decodeURIComponent(urlPath.slice('/api/payments/'.length));
+        const ok = deletePaymentAtomic(buildingId, paymentId, actor);
+        return sendJson(res, ok ? 200 : 404, { ok, ...(ok ? {} : { error: 'Cotisation introuvable.' }) });
       }
 
       // Transactions & Budget

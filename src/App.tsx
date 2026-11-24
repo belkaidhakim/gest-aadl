@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Apartment, AssemblyMinutes, HouseRuleSection, Notice, PaymentRecord } from './types';
 import { ToastProvider } from './components/ui/ToastProvider';
-import { ConfirmProvider } from './components/ui/ConfirmDialog';
+import { ConfirmProvider, useConfirm } from './components/ui/ConfirmDialog';
 import { AppStoreProvider, useAppStore } from './stores/AppStore';
 import { useAppRoute } from './app/useRoute';
 import { BureauLayout } from './app/layouts/BureauLayout';
@@ -69,7 +69,10 @@ const AppShell: React.FC = () => {
     loading,
     refreshFromServer,
     savePayment,
+    updatePayment,
+    deletePayment,
   } = useAppStore();
+  const { confirm } = useConfirm();
 
   const { portal, currentTab, navigate } = useAppRoute(role);
 
@@ -94,6 +97,7 @@ const AppShell: React.FC = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payDefaultApt, setPayDefaultApt] = useState<Apartment | null>(null);
+  const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
   const [receiptPayment, setReceiptPayment] = useState<PaymentRecord | null>(null);
   const [printNotice, setPrintNotice] = useState<Notice | null>(null);
   const [printUnpaid, setPrintUnpaid] = useState<{ month: string; unpaidApts: Apartment[] } | null>(null);
@@ -114,16 +118,53 @@ const AppShell: React.FC = () => {
   const handleOpenNewPayment = useCallback(
     (apt?: Apartment) => {
       if (!canManageFinance(role)) return;
+      setEditingPayment(null);
       setPayDefaultApt(apt || null);
       setIsPayModalOpen(true);
     },
     [role]
   );
 
+  const handleOpenEditPayment = useCallback(
+    (payment: PaymentRecord) => {
+      if (!canManageFinance(role)) return;
+      setReceiptPayment(null);
+      setPayDefaultApt(null);
+      setEditingPayment(payment);
+      setIsPayModalOpen(true);
+    },
+    [role]
+  );
+
+  const handleDeletePayment = useCallback(
+    async (payment: PaymentRecord) => {
+      if (!canManageFinance(role)) return;
+      const ok = await confirm({
+        title: 'Supprimer la cotisation',
+        message: `Voulez-vous vraiment supprimer la quittance ${payment.receiptNumber} (${payment.apartmentNumber} — ${payment.residentName}) ? L'écriture comptable associée sera également supprimée de la trésorerie.`,
+        confirmLabel: 'Supprimer',
+        danger: true,
+      });
+      if (!ok) return;
+      await deletePayment(payment.id);
+      setReceiptPayment((prev) => (prev?.id === payment.id ? null : prev));
+      if (editingPayment?.id === payment.id) {
+        setIsPayModalOpen(false);
+        setEditingPayment(null);
+      }
+    },
+    [role, confirm, deletePayment, editingPayment]
+  );
+
   const handleSavePayment = async (payment: PaymentRecord, openReceipt: boolean) => {
-    await savePayment(payment);
+    if (editingPayment) {
+      await updatePayment(payment);
+    } else {
+      await savePayment(payment);
+    }
     setIsPayModalOpen(false);
     setPayDefaultApt(null);
+    setEditingPayment(null);
     if (openReceipt) {
       setReceiptPayment(payment);
     }
@@ -177,6 +218,8 @@ const AppShell: React.FC = () => {
         return (
           <FeesPage
             onOpenNewPayment={(apt) => handleOpenNewPayment(apt)}
+            onEditPayment={handleOpenEditPayment}
+            onDeletePayment={handleDeletePayment}
             onViewReceipt={(p) => setReceiptPayment(p)}
             onPrintUnpaidNotice={(month, unpaidApts) => setPrintUnpaid({ month, unpaidApts })}
           />
@@ -266,17 +309,22 @@ const AppShell: React.FC = () => {
         <RecordPaymentModal
           data={data}
           defaultApt={payDefaultApt}
+          editingPayment={editingPayment}
           onClose={() => {
             setIsPayModalOpen(false);
             setPayDefaultApt(null);
+            setEditingPayment(null);
           }}
           onSavePayment={handleSavePayment}
+          onDeletePayment={handleDeletePayment}
         />
       )}
 
       <ReceiptModal
         payment={receiptPayment}
         building={data.building}
+        onEdit={canManageFinance(role) ? handleOpenEditPayment : undefined}
+        onDelete={canManageFinance(role) ? handleDeletePayment : undefined}
         onClose={() => setReceiptPayment(null)}
       />
 

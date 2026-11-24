@@ -735,6 +735,94 @@ export default {
         return jsonResponse({ ok: true, payment, transaction: tx }, 201);
       }
 
+      if (urlPath.startsWith('/api/payments/') && method === 'PUT') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const paymentId = decodeURIComponent(urlPath.slice('/api/payments/'.length));
+        const body = await readJsonBody(request);
+        const payment = body.payment;
+        if (!paymentId || !payment || !Number.isFinite(Number(payment.amountDZD)) || Number(payment.amountDZD) <= 0) {
+          return jsonResponse({ error: 'Cotisation ou montant invalide.' }, 400);
+        }
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const oldPayment = (state.payments || []).find((p) => p.id === paymentId);
+        if (!oldPayment) return jsonResponse({ error: 'Cotisation introuvable.' }, 404);
+        const updatedPayment = {
+          ...oldPayment,
+          ...payment,
+          id: paymentId,
+          amountDZD: Number(payment.amountDZD),
+        };
+        const updatedTx = {
+          id: `tx-rec-${paymentId}`,
+          date: String(updatedPayment.paymentDate || new Date().toISOString()).slice(0, 10),
+          type: 'recette',
+          fund: 'courant',
+          category: 'Cotisations Copropriétaires',
+          amountDZD: Number(updatedPayment.amountDZD),
+          description: `Cotisation ${updatedPayment.month} - ${updatedPayment.apartmentNumber} (${updatedPayment.residentName})`,
+          referenceDoc: updatedPayment.receiptNumber,
+          paymentMethod: updatedPayment.paymentMethod,
+        };
+        const existingTxs = state.transactions || [];
+        let matchedTx = false;
+        const nextTransactions = existingTxs.map((t) => {
+          const isMatch =
+            t.id === `tx-rec-${paymentId}` ||
+            Boolean(oldPayment.receiptNumber && t.type === 'recette' && t.referenceDoc === oldPayment.receiptNumber);
+          if (isMatch) {
+            matchedTx = true;
+            return { ...t, ...updatedTx, id: t.id };
+          }
+          return t;
+        });
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          payments: (state.payments || []).map((p) => (p.id === paymentId ? updatedPayment : p)),
+          transactions: matchedTx ? nextTransactions : [updatedTx, ...nextTransactions],
+        });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          actor,
+          'UPDATE_PAYMENT',
+          'payment',
+          paymentId,
+          `Modification cotisation ${updatedPayment.receiptNumber} — ${updatedPayment.apartmentNumber} (${updatedPayment.month})`,
+          updatedPayment.amountDZD
+        );
+        return jsonResponse({ ok: true, payment: updatedPayment, transaction: updatedTx });
+      }
+
+      if (urlPath.startsWith('/api/payments/') && method === 'DELETE') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const paymentId = decodeURIComponent(urlPath.slice('/api/payments/'.length));
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false, error: 'Bâtiment introuvable.' }, 404);
+        const targetPayment = (state.payments || []).find((p) => p.id === paymentId);
+        if (!targetPayment) return jsonResponse({ ok: false, error: 'Cotisation introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          payments: (state.payments || []).filter((p) => p.id !== paymentId),
+          transactions: (state.transactions || []).filter(
+            (t) =>
+              t.id !== `tx-rec-${paymentId}` &&
+              !(targetPayment.receiptNumber && t.type === 'recette' && t.referenceDoc === targetPayment.receiptNumber)
+          ),
+        });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          actor,
+          'DELETE_PAYMENT',
+          'payment',
+          paymentId,
+          `Suppression cotisation ${targetPayment.receiptNumber} — ${targetPayment.apartmentNumber} (${targetPayment.month})`,
+          targetPayment.amountDZD
+        );
+        return jsonResponse({ ok: true });
+      }
+
       // Transactions & Budget
       if (urlPath === '/api/transactions' && method === 'POST') {
         if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);

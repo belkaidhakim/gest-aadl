@@ -12,6 +12,8 @@ import {
   History,
   AlertCircle,
   Clock,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { Apartment, PaymentRecord } from '../../types';
 import { formatDZD, formatMonthName, getCurrentMonthStr, generateFeeReminderText } from '../../utils/helpers';
@@ -22,6 +24,8 @@ import { useToast } from '../../components/ui/ToastProvider';
 
 interface FeesPageProps {
   onOpenNewPayment: (defaultApt?: Apartment) => void;
+  onEditPayment: (payment: PaymentRecord) => void;
+  onDeletePayment: (payment: PaymentRecord) => void;
   onViewReceipt: (payment: PaymentRecord) => void;
   onPrintUnpaidNotice: (month: string, unpaidApts: Apartment[]) => void;
 }
@@ -30,6 +34,8 @@ const MULTI_YEARS = ['2024', '2025', '2026'];
 
 export const FeesPage: React.FC<FeesPageProps> = ({
   onOpenNewPayment,
+  onEditPayment,
+  onDeletePayment,
   onViewReceipt,
   onPrintUnpaidNotice,
 }) => {
@@ -477,15 +483,34 @@ export const FeesPage: React.FC<FeesPageProps> = ({
 
                         <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-400">
                           {aptPayments.length > 0 ? (
-                            <div className="flex flex-col items-start gap-0.5">
+                            <div className="flex flex-col items-start gap-1">
                               {aptPayments.map((p) => (
-                                <button
-                                  key={p.id}
-                                  onClick={() => onViewReceipt(p)}
-                                  className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                                >
-                                  {p.receiptNumber}
-                                </button>
+                                <div key={p.id} className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => onViewReceipt(p)}
+                                    className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                                  >
+                                    {p.receiptNumber}
+                                  </button>
+                                  {aptPayments.length > 1 && canCollect && (
+                                    <>
+                                      <button
+                                        onClick={() => onEditPayment(p)}
+                                        title={`${t('edit')} ${p.receiptNumber}`}
+                                        className="p-0.5 text-amber-600 hover:text-amber-700 dark:text-amber-400 rounded cursor-pointer"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={() => onDeletePayment(p)}
+                                        title={`${lang === 'ar' ? 'حذف' : 'Supprimer'} ${p.receiptNumber}`}
+                                        className="p-0.5 text-rose-500 hover:text-rose-700 dark:text-rose-400 rounded cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           ) : (
@@ -536,12 +561,34 @@ export const FeesPage: React.FC<FeesPageProps> = ({
                               </>
                             )}
                             {payment && (
-                              <button
-                                onClick={() => onViewReceipt(payment)}
-                                className="px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 rounded border border-emerald-200 dark:border-emerald-800 cursor-pointer"
-                              >
-                                {t('receiptBtn')}
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => onViewReceipt(payment)}
+                                  className="px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 rounded border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+                                >
+                                  {t('receiptBtn')}
+                                </button>
+                                {canCollect && (
+                                  <>
+                                    <button
+                                      onClick={() => onEditPayment(payment)}
+                                      title={t('edit')}
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 rounded border border-amber-200 dark:border-amber-800 cursor-pointer"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                      <span>{t('edit')}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => onDeletePayment(payment)}
+                                      title={lang === 'ar' ? 'حذف الاشتراك' : 'Supprimer la cotisation'}
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 rounded border border-rose-200 dark:border-rose-800 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span className="hidden xl:inline">{lang === 'ar' ? 'حذف' : 'Supprimer'}</span>
+                                    </button>
+                                  </>
+                                )}
+                              </>
                             )}
                             {!isFullyPaid && !isPartial && !isVacant && canCollect && (
                               <>

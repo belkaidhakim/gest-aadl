@@ -36,6 +36,7 @@ import {
   castVoteRemote,
   completePreventiveRemote,
   createBuildingRemote,
+  deletePaymentRemote,
   deleteTransactionRemote,
   fetchRemoteState,
   fetchServerStatus,
@@ -52,6 +53,7 @@ import {
   updateBuildingRemote,
   updateHouseRulesRemote,
   updateIncidentStatusRemote,
+  updatePaymentRemote,
   uploadAttachmentRemote,
 } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
@@ -81,6 +83,8 @@ interface AppStoreValue {
   refreshFromServer: (buildingIdOverride?: string) => Promise<void>;
   switchToResident: () => Promise<void>;
   savePayment: (payment: PaymentRecord) => Promise<void>;
+  updatePayment: (payment: PaymentRecord) => Promise<void>;
+  deletePayment: (paymentId: string) => Promise<void>;
   addIncident: (incident: Incident) => Promise<void>;
   reportResidentIncident: (payload: ResidentIncidentReportPayload) => Promise<boolean>;
   updateIncidentStatus: (
@@ -341,6 +345,91 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         payment.amountDZD
       );
       toast.success(`${payment.receiptNumber} enregistré`);
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+  );
+
+  const updatePayment = useCallback(
+    async (payment: PaymentRecord) => {
+      const oldPayment = data.payments.find((p) => p.id === payment.id);
+      const updatedPayment: PaymentRecord = {
+        ...oldPayment,
+        ...payment,
+        amountDZD: Number(payment.amountDZD),
+      };
+      const updatedTx: Transaction = {
+        id: `tx-rec-${updatedPayment.id}`,
+        date: String(updatedPayment.paymentDate || new Date().toISOString()).slice(0, 10),
+        type: 'recette',
+        fund: 'courant',
+        category: 'Cotisations Copropriétaires',
+        amountDZD: updatedPayment.amountDZD,
+        description: `Cotisation ${updatedPayment.month} - ${updatedPayment.apartmentNumber} (${updatedPayment.residentName})`,
+        referenceDoc: updatedPayment.receiptNumber,
+        paymentMethod: updatedPayment.paymentMethod,
+      };
+      let matchedTx = false;
+      const nextTransactions = data.transactions.map((t) => {
+        const isMatch =
+          t.id === `tx-rec-${updatedPayment.id}` ||
+          Boolean(oldPayment?.receiptNumber && t.type === 'recette' && t.referenceDoc === oldPayment.receiptNumber);
+        if (isMatch) {
+          matchedTx = true;
+          return { ...t, ...updatedTx, id: t.id };
+        }
+        return t;
+      });
+      const next: AppData = {
+        ...data,
+        payments: data.payments.map((p) => (p.id === updatedPayment.id ? updatedPayment : p)),
+        transactions: matchedTx ? nextTransactions : [updatedTx, ...nextTransactions],
+      };
+      if (serverConnected) {
+        const res = await updatePaymentRemote(activeBuildingId, updatedPayment);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur lors de la modification');
+          return;
+        }
+      }
+      persistLocal(next, activeBuildingId);
+      logLocal(
+        'UPDATE_PAYMENT',
+        'payment',
+        `Modification cotisation ${updatedPayment.receiptNumber} — ${updatedPayment.apartmentNumber} (${updatedPayment.month})`,
+        updatedPayment.amountDZD
+      );
+      toast.success(`${updatedPayment.receiptNumber} modifié`);
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+  );
+
+  const deletePayment = useCallback(
+    async (paymentId: string) => {
+      const targetPayment = data.payments.find((p) => p.id === paymentId);
+      if (serverConnected) {
+        const res = await deletePaymentRemote(activeBuildingId, paymentId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur lors de la suppression');
+          return;
+        }
+      }
+      const next: AppData = {
+        ...data,
+        payments: data.payments.filter((p) => p.id !== paymentId),
+        transactions: data.transactions.filter(
+          (t) =>
+            t.id !== `tx-rec-${paymentId}` &&
+            !(targetPayment?.receiptNumber && t.type === 'recette' && t.referenceDoc === targetPayment.receiptNumber)
+        ),
+      };
+      persistLocal(next, activeBuildingId);
+      logLocal(
+        'DELETE_PAYMENT',
+        'payment',
+        `Suppression cotisation ${targetPayment?.receiptNumber || paymentId} — ${targetPayment?.apartmentNumber || ''} (${targetPayment?.month || ''})`,
+        targetPayment?.amountDZD
+      );
+      toast.info('Cotisation supprimée');
     },
     [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
@@ -881,6 +970,8 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         refreshFromServer,
         switchToResident,
         savePayment,
+        updatePayment,
+        deletePayment,
         addIncident,
         reportResidentIncident,
         updateIncidentStatus,

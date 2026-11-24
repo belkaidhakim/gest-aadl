@@ -1,5 +1,5 @@
 import React from 'react';
-import { Printer, X, CheckCircle2 } from 'lucide-react';
+import { Printer, Pencil, Trash2, X, CheckCircle2 } from 'lucide-react';
 import { BuildingInfo, PaymentRecord } from '../../types';
 import { formatDZD, formatDateFr, formatMonthName, numberToFrenchWords } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
@@ -7,12 +7,16 @@ import { useI18n } from '../../i18n';
 interface ReceiptModalProps {
   payment: PaymentRecord | null;
   building: BuildingInfo;
+  onEdit?: (payment: PaymentRecord) => void;
+  onDelete?: (payment: PaymentRecord) => void;
   onClose: () => void;
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   payment,
   building,
+  onEdit,
+  onDelete,
   onClose,
 }) => {
   const { lang, t } = useI18n();
@@ -48,7 +52,25 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </h3>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {onEdit && (
+              <button
+                onClick={() => onEdit(payment)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 rounded-lg border border-amber-200 dark:border-amber-800 cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>{t('edit')}</span>
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={() => onDelete(payment)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 rounded-lg border border-rose-200 dark:border-rose-800 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{lang === 'ar' ? 'حذف' : 'Supprimer'}</span>
+              </button>
+            )}
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm cursor-pointer"

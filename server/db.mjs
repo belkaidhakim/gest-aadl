@@ -554,6 +554,131 @@ export function recordPaymentAtomic(buildingId, payment, actor) {
   });
 }
 
+export function updatePaymentAtomic(buildingId, paymentId, payment, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM payments WHERE building_id = ? AND id = ?').get(buildingId, paymentId);
+    if (!row) return null;
+    const oldPayment = JSON.parse(row.payload);
+    const updatedPayment = {
+      ...oldPayment,
+      ...payment,
+      id: paymentId,
+      amountDZD: Number(payment.amountDZD),
+    };
+
+    db.prepare(
+      `UPDATE payments
+       SET apartment_id = ?, month = ?, amount_dzd = ?, receipt_number = ?, payment_date = ?, payload = ?
+       WHERE building_id = ? AND id = ?`
+    ).run(
+      updatedPayment.apartmentId,
+      updatedPayment.month,
+      Number(updatedPayment.amountDZD),
+      updatedPayment.receiptNumber,
+      updatedPayment.paymentDate,
+      JSON.stringify(updatedPayment),
+      buildingId,
+      paymentId
+    );
+
+    const updatedTx = {
+      id: `tx-rec-${paymentId}`,
+      date: String(updatedPayment.paymentDate || new Date().toISOString()).slice(0, 10),
+      type: 'recette',
+      fund: 'courant',
+      category: 'Cotisations Copropriétaires',
+      amountDZD: Number(updatedPayment.amountDZD),
+      description: `Cotisation ${updatedPayment.month} - ${updatedPayment.apartmentNumber} (${updatedPayment.residentName})`,
+      referenceDoc: updatedPayment.receiptNumber,
+      paymentMethod: updatedPayment.paymentMethod,
+    };
+
+    const txRows = db
+      .prepare("SELECT id, payload FROM transactions WHERE building_id = ? AND type = 'recette'")
+      .all(buildingId);
+    let matchedTx = false;
+    for (const txRow of txRows) {
+      const parsedTx = JSON.parse(txRow.payload);
+      const isMatch =
+        txRow.id === `tx-rec-${paymentId}` ||
+        Boolean(oldPayment.receiptNumber && parsedTx.referenceDoc === oldPayment.receiptNumber);
+      if (isMatch) {
+        matchedTx = true;
+        const mergedTx = { ...parsedTx, ...updatedTx, id: txRow.id };
+        db.prepare('UPDATE transactions SET date = ?, amount_dzd = ?, payload = ? WHERE building_id = ? AND id = ?').run(
+          mergedTx.date,
+          mergedTx.amountDZD,
+          JSON.stringify(mergedTx),
+          buildingId,
+          txRow.id
+        );
+      }
+    }
+    if (!matchedTx) {
+      db.prepare(
+        `INSERT INTO transactions (building_id, id, date, type, fund, category, amount_dzd, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        buildingId,
+        updatedTx.id,
+        updatedTx.date,
+        updatedTx.type,
+        updatedTx.fund,
+        updatedTx.category,
+        updatedTx.amountDZD,
+        JSON.stringify(updatedTx)
+      );
+    }
+
+    writeAuditLog(
+      buildingId,
+      actor,
+      'UPDATE_PAYMENT',
+      'payment',
+      paymentId,
+      `Modification cotisation ${updatedPayment.receiptNumber} — ${updatedPayment.apartmentNumber} (${updatedPayment.month})`,
+      updatedPayment.amountDZD
+    );
+
+    return { payment: updatedPayment, transaction: updatedTx };
+  });
+}
+
+export function deletePaymentAtomic(buildingId, paymentId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM payments WHERE building_id = ? AND id = ?').get(buildingId, paymentId);
+    if (!row) return false;
+    const targetPayment = JSON.parse(row.payload);
+
+    db.prepare('DELETE FROM payments WHERE building_id = ? AND id = ?').run(buildingId, paymentId);
+
+    const txRows = db
+      .prepare("SELECT id, payload FROM transactions WHERE building_id = ? AND type = 'recette'")
+      .all(buildingId);
+    for (const txRow of txRows) {
+      const parsedTx = JSON.parse(txRow.payload);
+      if (
+        txRow.id === `tx-rec-${paymentId}` ||
+        Boolean(targetPayment.receiptNumber && parsedTx.referenceDoc === targetPayment.receiptNumber)
+      ) {
+        db.prepare('DELETE FROM transactions WHERE building_id = ? AND id = ?').run(buildingId, txRow.id);
+      }
+    }
+
+    writeAuditLog(
+      buildingId,
+      actor,
+      'DELETE_PAYMENT',
+      'payment',
+      paymentId,
+      `Suppression cotisation ${targetPayment.receiptNumber} — ${targetPayment.apartmentNumber} (${targetPayment.month})`,
+      targetPayment.amountDZD
+    );
+
+    return true;
+  });
+}
+
 export function addTransaction(buildingId, tx, actor) {
   return runInTransaction(() => {
     const cleanTx = { ...tx, fund: tx.fund || 'courant', amountDZD: Number(tx.amountDZD) };
