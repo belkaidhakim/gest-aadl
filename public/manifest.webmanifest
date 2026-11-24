@@ -1,0 +1,18 @@
+{
+  "name": "Gest-AADL — Gestion de Bâtiment & Copropriété",
+  "short_name": "Gest-AADL",
+  "description": "Plateforme de gestion de bâtiment, cotisations, incidents et trésorerie pour cités AADL.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#059669",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

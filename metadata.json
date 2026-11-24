@@ -1,0 +1,6 @@
+{
+  "name": "Gest-AADL - Gestion de Bâtiment et Copropriété",
+  "description": "Application complète de gestion de bâtiment, copropriété et syndic pour cités AADL en Algérie : suivi des cotisations, résidents, pannes d'ascenseur/surpresseur, trésorerie et convocations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
