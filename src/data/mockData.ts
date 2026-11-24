@@ -102,17 +102,32 @@ function generateInitialPayments(): PaymentRecord[] {
 
 const initialPayments = generateInitialPayments();
 
-const initialTransactions: Transaction[] = initialPayments.map((payment) => ({
-  id: `tx-rec-${payment.id}`,
-  date: '2026-11-24',
-  type: 'recette',
+const REPORT_2025_TRANSACTION: Transaction = {
+  id: 'tx-ran-2025',
+  date: '2026-01-01',
+  type: 'depense',
   fund: 'courant',
-  category: 'Cotisations Copropriétaires',
-  amountDZD: payment.amountDZD,
-  description: `Cotisation ${payment.month} - ${payment.apartmentNumber} (${payment.residentName})`,
-  referenceDoc: payment.receiptNumber,
-  paymentMethod: payment.paymentMethod,
-}));
+  category: 'Report à Nouveau (Solde Antérieur)',
+  amountDZD: 50250,
+  description: 'Report à nouveau débiteur — Solde Exercice 2025 (-50 250 DZD)',
+  referenceDoc: 'RAN-2025',
+  paymentMethod: 'Espèces',
+};
+
+const initialTransactions: Transaction[] = [
+  ...initialPayments.map((payment): Transaction => ({
+    id: `tx-rec-${payment.id}`,
+    date: '2026-11-24',
+    type: 'recette',
+    fund: 'courant',
+    category: 'Cotisations Copropriétaires',
+    amountDZD: payment.amountDZD,
+    description: `Cotisation ${payment.month} - ${payment.apartmentNumber} (${payment.residentName})`,
+    referenceDoc: payment.receiptNumber,
+    paymentMethod: payment.paymentMethod,
+  })),
+  REPORT_2025_TRANSACTION,
+];
 
 export const initialAppData: AppData = {
   building: {

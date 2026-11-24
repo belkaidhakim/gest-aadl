@@ -22,12 +22,14 @@ export const EXPENSE_CATEGORIES: TransactionCategory[] = [
   'Achat Fournitures & Ampoules',
   'Gros Travaux & Équipements',
   'Frais Administratifs / Juridiques',
+  'Report à Nouveau (Solde Antérieur)',
   'Autre',
 ];
 
 export const INCOME_CATEGORIES: TransactionCategory[] = [
   'Cotisations Copropriétaires',
   'Dotation Fonds de Réserve',
+  'Report à Nouveau (Solde Antérieur)',
   'Autre',
 ];
 
@@ -47,6 +49,8 @@ export function getCategoryLabel(category: TransactionCategory, lang: 'fr' | 'ar
   switch (category) {
     case 'Cotisations Copropriétaires':
       return 'اشتراكات الملاك والساكنين';
+    case 'Report à Nouveau (Solde Antérieur)':
+      return 'ترحيل رصيد السنة السابقة (2025)';
     case 'Dotation Fonds de Réserve':
       return 'تحويل / دعم صندوق الاحتياط';
     case 'Maintenance Ascenseurs':

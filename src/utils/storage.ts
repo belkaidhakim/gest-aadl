@@ -1,7 +1,7 @@
 import { AppData } from '../types';
 import { initialAppData } from '../data/mockData';
 
-const STORAGE_KEY = 'gest_aadl_app_state_v5';
+const STORAGE_KEY = 'gest_aadl_app_state_v6';
 
 export function normalizeAppData(parsed: Partial<AppData> | null | undefined): AppData {
   if (!parsed) return initialAppData;

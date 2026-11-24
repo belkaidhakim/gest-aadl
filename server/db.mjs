@@ -365,8 +365,56 @@ function migrateLegacyJsonIfNeeded() {
   }
 }
 
+function ensureRan2025Seeded() {
+  const existingMeta = db.prepare("SELECT value FROM meta WHERE key = 'ran_2025_50250_v1'").get();
+  if (existingMeta) return;
+  runInTransaction(() => {
+    db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('ran_2025_50250_v1', '1')").run();
+    const bRow = db.prepare("SELECT id FROM buildings WHERE id = 'bldg-e36'").get();
+    if (!bRow) return;
+    const existsTx = db
+      .prepare("SELECT id FROM transactions WHERE building_id = 'bldg-e36' AND id = 'tx-ran-2025'")
+      .get();
+    if (existsTx) return;
+    const ranTx = {
+      id: 'tx-ran-2025',
+      date: '2026-01-01',
+      type: 'depense',
+      fund: 'courant',
+      category: 'Report à Nouveau (Solde Antérieur)',
+      amountDZD: 50250,
+      description: 'Report à nouveau débiteur — Solde Exercice 2025 (-50 250 DZD)',
+      referenceDoc: 'RAN-2025',
+      paymentMethod: 'Espèces',
+    };
+    db.prepare(
+      `INSERT INTO transactions (building_id, id, date, type, fund, category, amount_dzd, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      'bldg-e36',
+      ranTx.id,
+      ranTx.date,
+      ranTx.type,
+      ranTx.fund,
+      ranTx.category,
+      ranTx.amountDZD,
+      JSON.stringify(ranTx)
+    );
+    writeAuditLog(
+      'bldg-e36',
+      { fullName: 'Système', role: 'president' },
+      'ADD_EXPENSE',
+      'transaction',
+      ranTx.id,
+      ranTx.description,
+      ranTx.amountDZD
+    );
+  });
+}
+
 seedDefaultUsersIfEmpty();
 migrateLegacyJsonIfNeeded();
+ensureRan2025Seeded();
 getOrCreateSessionSecret();
 
 // --- Queries & Mutations ---

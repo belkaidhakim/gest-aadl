@@ -213,6 +213,52 @@ async function ensureInitialized(sql) {
       }
     }
 
+    // One-time carry-over of 2025 deficit balance (-50 250 DZD) into 2026 exercise
+    const ran2025Lock = await sql`
+      INSERT INTO gest_meta (key, value)
+      VALUES ('ran_2025_50250_v1', '1')
+      ON CONFLICT (key) DO NOTHING
+      RETURNING key
+    `;
+    if (ran2025Lock.length > 0) {
+      const bRows = await sql`SELECT id, payload FROM gest_buildings WHERE id = 'bldg-e36' LIMIT 1`;
+      if (bRows[0]) {
+        const state = parsePayload(bRows[0].payload);
+        if (state && Array.isArray(state.transactions) && !state.transactions.some((t) => t.id === 'tx-ran-2025')) {
+          const ranTx = {
+            id: 'tx-ran-2025',
+            date: '2026-01-01',
+            type: 'depense',
+            fund: 'courant',
+            category: 'Report à Nouveau (Solde Antérieur)',
+            amountDZD: 50250,
+            description: 'Report à nouveau débiteur — Solde Exercice 2025 (-50 250 DZD)',
+            referenceDoc: 'RAN-2025',
+            paymentMethod: 'Espèces',
+          };
+          const nextState = {
+            ...state,
+            transactions: [...state.transactions, ranTx],
+          };
+          await sql`
+            UPDATE gest_buildings
+            SET payload = ${JSON.stringify(nextState)}::jsonb, updated_at = ${new Date().toISOString()}
+            WHERE id = 'bldg-e36'
+          `;
+          await writeAuditLog(
+            sql,
+            'bldg-e36',
+            { fullName: 'Système', role: 'president' },
+            'ADD_EXPENSE',
+            'transaction',
+            'tx-ran-2025',
+            ranTx.description,
+            ranTx.amountDZD
+          );
+        }
+      }
+    }
+
     return cachedSessionSecret;
   })();
 

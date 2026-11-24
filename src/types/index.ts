@@ -59,6 +59,7 @@ export type IncidentStatus = 'signale' | 'en_cours' | 'resolu';
 export type TransactionType = 'recette' | 'depense';
 export type TransactionCategory = 
   | 'Cotisations Copropriétaires'
+  | 'Report à Nouveau (Solde Antérieur)'
   | 'Dotation Fonds de Réserve'
   | 'Maintenance Ascenseurs'
   | 'Facture Électricité Sonelgaz'

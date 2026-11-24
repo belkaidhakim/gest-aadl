@@ -1493,6 +1493,17 @@ export const INITIAL_BUILDING_DATA = {
       "description": "Cotisation 2026 - Appt 36 (MEZINE NASSIM)",
       "referenceDoc": "REC-2026-033",
       "paymentMethod": "Espèces"
+    },
+    {
+      "id": "tx-ran-2025",
+      "date": "2026-01-01",
+      "type": "depense",
+      "fund": "courant",
+      "category": "Report à Nouveau (Solde Antérieur)",
+      "amountDZD": 50250,
+      "description": "Report à nouveau débiteur — Solde Exercice 2025 (-50 250 DZD)",
+      "referenceDoc": "RAN-2025",
+      "paymentMethod": "Espèces"
     }
   ],
   "notices": [
