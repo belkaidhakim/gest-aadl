@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Building,
   DoorClosed,
@@ -37,7 +37,8 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
   const canCollect = canManageFinance(role);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthStr());
-  const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'partial' | 'unpaid' | 'vacant'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'partial' | 'unpaid' | 'due' | 'vacant'>('all');
+  const [selectedFloorFilter, setSelectedFloorFilter] = useState<number | 'all'>('all');
   const [filterType, setFilterType] = useState<'all' | 'F3' | 'F4'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedApt, setSelectedApt] = useState<Apartment | null>(null);
@@ -80,6 +81,27 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
   const floorNumbers = Array.from({ length: maxFloor + 1 }, (_, i) => maxFloor - i);
   const vacantCount = data.apartments.filter((a) => a.occupancy === 'vacant').length;
   const isAnnual = (data.building.feeFrequency || 'annuel') === 'annuel';
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('gest_aadl_matrix_jump');
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          floor?: number;
+          status?: 'all' | 'paid' | 'partial' | 'unpaid' | 'due' | 'vacant';
+        };
+        if (typeof parsed.floor === 'number') {
+          setSelectedFloorFilter(parsed.floor);
+        }
+        if (parsed.status) {
+          setFilterStatus(parsed.status);
+        }
+        sessionStorage.removeItem('gest_aadl_matrix_jump');
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const getAptPaidAmount = (aptId: string): number => paidAmountByAptId.get(aptId) || 0;
 
@@ -154,8 +176,13 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
   };
 
   const isAptVisible = (apt: Apartment) => {
+    if (selectedFloorFilter !== 'all' && apt.floor !== selectedFloorFilter) return false;
     const status = getApartmentStatus(apt);
-    if (filterStatus !== 'all' && status !== filterStatus) return false;
+    if (filterStatus === 'due') {
+      if (status !== 'unpaid' && status !== 'partial') return false;
+    } else if (filterStatus !== 'all' && status !== filterStatus) {
+      return false;
+    }
     if (filterType !== 'all' && apt.type !== filterType) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -241,6 +268,21 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
               <span>{t('unpaid')} ({data.apartments.filter((a) => getApartmentStatus(a) === 'unpaid').length})</span>
             </button>
             <button
+              onClick={() => setFilterStatus('due')}
+              className={`px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1.5 ${
+                filterStatus === 'due' ? 'bg-rose-600 text-white shadow-sm font-semibold' : 'text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              <span>
+                {lang === 'ar' ? 'مستحق التحصيل' : 'À recouvrer'} (
+                {data.apartments.filter((a) => {
+                  const st = getApartmentStatus(a);
+                  return st === 'unpaid' || st === 'partial';
+                }).length}
+                )
+              </span>
+            </button>
+            <button
               onClick={() => setFilterStatus('vacant')}
               className={`px-3 py-1.5 rounded-lg cursor-pointer ${
                 filterStatus === 'vacant' ? 'bg-slate-700 text-white shadow-sm font-semibold' : 'text-slate-600 dark:text-slate-400'
@@ -250,7 +292,21 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-2 grow sm:grow-0">
+          <div className="flex flex-wrap items-center gap-2 grow sm:grow-0">
+            <select
+              value={selectedFloorFilter === 'all' ? 'all' : String(selectedFloorFilter)}
+              onChange={(e) => setSelectedFloorFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+            >
+              <option value="all">{t('allFloors')}</option>
+              <option value="0">{t('rdc')}</option>
+              {Array.from({ length: maxFloor }, (_, i) => i + 1).map((f) => (
+                <option key={f} value={String(f)}>
+                  {t('floor')} {f}
+                </option>
+              ))}
+            </select>
+
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as 'all' | 'F3' | 'F4')}

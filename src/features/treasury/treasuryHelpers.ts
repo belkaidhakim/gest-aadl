@@ -94,6 +94,14 @@ export function isInternalTransfer(tx: Transaction): boolean {
   return Boolean(tx.referenceDoc && tx.referenceDoc.startsWith('VIR-'));
 }
 
+export function isCarryOverTransaction(tx: Transaction): boolean {
+  return (
+    tx.category === 'Report à Nouveau (Solde Antérieur)' ||
+    tx.id === 'tx-ran-2025' ||
+    tx.referenceDoc === 'RAN-2025'
+  );
+}
+
 export function computeRunningBalances(transactions: Transaction[]): Map<string, number> {
   const chronological = [...transactions].sort((a, b) => {
     const tA = new Date(a.date).getTime();

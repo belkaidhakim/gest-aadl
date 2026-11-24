@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Wrench,
   AlertTriangle,
@@ -50,6 +50,18 @@ export const MaintenancePage: React.FC = () => {
   const [quoteIncident, setQuoteIncident] = useState<Incident | null>(null);
   const [isNewPrevModalOpen, setIsNewPrevModalOpen] = useState(false);
   const [completingTask, setCompletingTask] = useState<PreventiveTask | null>(null);
+
+  useEffect(() => {
+    try {
+      const jumpTab = sessionStorage.getItem('gest_aadl_maint_subtab');
+      if (jumpTab === 'preventive') {
+        setSubTab('preventive');
+        sessionStorage.removeItem('gest_aadl_maint_subtab');
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const quoteThreshold = data.building.quoteThresholdDZD || 20000;
   const preventiveTasks = data.preventiveTasks || [];

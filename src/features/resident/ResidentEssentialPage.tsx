@@ -29,6 +29,7 @@ import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { CircularGauge, DonutChart } from '../../components/ui/Charts';
 import { AppTab } from '../../app/useRoute';
+import { isCarryOverTransaction } from '../treasury/treasuryHelpers';
 import { ReportIncidentModal } from './ReportIncidentModal';
 import residenceHeroImg from '../../assets/images/aadl_residence_complex_1794390110787.jpg';
 
@@ -81,10 +82,26 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
     .sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime())
     .slice(0, 3);
 
+  const carryOverNet = useMemo(
+    () =>
+      data.transactions
+        .filter((tx) => isCarryOverTransaction(tx))
+        .reduce((acc, tx) => acc + (tx.type === 'recette' ? tx.amountDZD : -tx.amountDZD), 0),
+    [data.transactions]
+  );
+
+  const operatingExpenses = useMemo(
+    () =>
+      data.transactions
+        .filter((tx) => tx.type === 'depense' && !isCarryOverTransaction(tx))
+        .reduce((acc, tx) => acc + tx.amountDZD, 0),
+    [data.transactions]
+  );
+
   const expenseSlices = useMemo(() => {
     const map: Record<string, number> = {};
     data.transactions
-      .filter((tx) => tx.type === 'depense')
+      .filter((tx) => tx.type === 'depense' && !isCarryOverTransaction(tx))
       .forEach((tx) => {
         map[tx.category] = (map[tx.category] || 0) + tx.amountDZD;
       });
@@ -523,7 +540,17 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                   {t('residentExpenseBreakdownTitle')}
                 </h2>
               </div>
-              <DonutChart slices={expenseSlices} centerLabel={t('expenses')} />
+              <DonutChart
+                slices={expenseSlices}
+                centerLabel={t('expenses')}
+                emptyNote={
+                  operatingExpenses === 0 && carryOverNet !== 0
+                    ? lang === 'ar'
+                      ? `0 دج مصاريف تشغيلية في 2026 (ترحيل رصيد 2025 : ${formatDZD(carryOverNet, lang)})`
+                      : `0 DZD de dépenses d'exploitation en 2026 (Report exercice 2025 : ${formatDZD(carryOverNet, lang)})`
+                    : undefined
+                }
+              />
             </div>
 
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">

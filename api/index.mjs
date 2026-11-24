@@ -259,6 +259,43 @@ async function ensureInitialized(sql) {
       }
     }
 
+    // One-time sync of notice not-01 to reflect resolved elevator status (2/2 operational)
+    const noticeSyncLock = await sql`
+      INSERT INTO gest_meta (key, value)
+      VALUES ('notice_01_elevator_sync_v1', '1')
+      ON CONFLICT (key) DO NOTHING
+      RETURNING key
+    `;
+    if (noticeSyncLock.length > 0) {
+      const bRows = await sql`SELECT id, payload FROM gest_buildings WHERE id = 'bldg-e36' LIMIT 1`;
+      if (bRows[0]) {
+        const state = parsePayload(bRows[0].payload);
+        if (state && Array.isArray(state.notices)) {
+          let changed = false;
+          const nextNotices = state.notices.map((n) => {
+            if (n.id !== 'not-01') return n;
+            changed = true;
+            return {
+              ...n,
+              title: "Remise en service de l'Ascenseur N°1 (Gauche)",
+              type: 'info',
+              date: '2026-11-23',
+              message:
+                "Suite au remplacement du contacteur de porte et du galet de guidage par la société de maintenance, l'ascenseur N°1 (Gauche) est de nouveau pleinement opérationnel. Les 2 cabines sont en service normal.",
+            };
+          });
+          if (changed) {
+            await sql`
+              UPDATE gest_buildings
+              SET payload = ${JSON.stringify({ ...state, notices: nextNotices })}::jsonb,
+                  updated_at = ${new Date().toISOString()}
+              WHERE id = 'bldg-e36'
+            `;
+          }
+        }
+      }
+    }
+
     return cachedSessionSecret;
   })();
 

@@ -232,11 +232,11 @@ export const initialAppData: AppData = {
   notices: [
     {
       id: 'not-01',
-      title: "Intervention sur l'Ascenseur N°1 (Gauche)",
-      type: 'urgent',
-      date: '2026-11-10',
+      title: "Remise en service de l'Ascenseur N°1 (Gauche)",
+      type: 'info',
+      date: '2026-11-23',
       author: 'Le Bureau du Syndic',
-      message: "Suite à un défaut de contacteur au 4ème étage, l'ascenseur N°1 est momentanément arrêté pour des raisons de sécurité. La société de maintenance est intervenue et procède au remplacement de la pièce ce jour. L'ascenseur N°2 (Droite) reste fonctionnel.",
+      message: "Suite au remplacement du contacteur de porte et du galet de guidage par la société de maintenance, l'ascenseur N°1 (Gauche) est de nouveau pleinement opérationnel. Les 2 cabines sont en service normal.",
       isPinned: true,
       targetAudience: 'Tous les résidents',
     },

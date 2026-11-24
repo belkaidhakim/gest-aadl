@@ -415,6 +415,33 @@ function ensureRan2025Seeded() {
 seedDefaultUsersIfEmpty();
 migrateLegacyJsonIfNeeded();
 ensureRan2025Seeded();
+
+function ensureNotice01Synced() {
+  const existingMeta = db.prepare("SELECT value FROM meta WHERE key = 'notice_01_elevator_sync_v1'").get();
+  if (existingMeta) return;
+  runInTransaction(() => {
+    db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('notice_01_elevator_sync_v1', '1')").run();
+    const row = db
+      .prepare("SELECT payload FROM notices WHERE building_id = 'bldg-e36' AND id = 'not-01'")
+      .get();
+    if (!row) return;
+    const notice = JSON.parse(row.payload);
+    const updated = {
+      ...notice,
+      title: "Remise en service de l'Ascenseur N°1 (Gauche)",
+      type: 'info',
+      date: '2026-11-23',
+      message:
+        "Suite au remplacement du contacteur de porte et du galet de guidage par la société de maintenance, l'ascenseur N°1 (Gauche) est de nouveau pleinement opérationnel. Les 2 cabines sont en service normal.",
+    };
+    db.prepare("UPDATE notices SET date = ?, payload = ? WHERE building_id = 'bldg-e36' AND id = 'not-01'").run(
+      updated.date,
+      JSON.stringify(updated)
+    );
+  });
+}
+
+ensureNotice01Synced();
 getOrCreateSessionSecret();
 
 // --- Queries & Mutations ---

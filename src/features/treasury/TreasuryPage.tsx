@@ -50,6 +50,7 @@ import {
   exportTransactionsCSV,
   getCategoryLabel,
   getPaymentMethodLabel,
+  isCarryOverTransaction,
   isInternalTransfer,
 } from './treasuryHelpers';
 
@@ -147,6 +148,22 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
     [externalExerciseTx]
   );
 
+  const carryOverNet = useMemo(
+    () =>
+      externalExerciseTx
+        .filter((tx) => isCarryOverTransaction(tx))
+        .reduce((acc, tx) => acc + (tx.type === 'recette' ? tx.amountDZD : -tx.amountDZD), 0),
+    [externalExerciseTx]
+  );
+
+  const operatingExpenses = useMemo(
+    () =>
+      externalExerciseTx
+        .filter((tx) => tx.type === 'depense' && !isCarryOverTransaction(tx))
+        .reduce((a, tx) => a + tx.amountDZD, 0),
+    [externalExerciseTx]
+  );
+
   const exerciseExpenses = useMemo(
     () => externalExerciseTx.filter((tx) => tx.type === 'depense').reduce((a, tx) => a + tx.amountDZD, 0),
     [externalExerciseTx]
@@ -155,7 +172,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
   const expenseByCategory = useMemo(() => {
     const map: Record<string, number> = {};
     externalExerciseTx
-      .filter((tx) => tx.type === 'depense')
+      .filter((tx) => tx.type === 'depense' && !isCarryOverTransaction(tx))
       .forEach((tx) => {
         map[tx.category] = (map[tx.category] || 0) + tx.amountDZD;
       });
@@ -470,13 +487,20 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
                 {formatDZD(netBalance, lang)}
               </div>
             </div>
-            <div className="pt-2 border-t border-emerald-200/50 dark:border-emerald-800/40 flex items-center justify-between text-[11px]">
-              <span className="text-emerald-700/80 dark:text-emerald-400">
-                <ArrowUpRight className="w-3 h-3 inline" /> +{formatDZD(exerciseIncomes, lang)}
-              </span>
-              <span className="text-rose-600 dark:text-rose-400 font-semibold">
-                <ArrowDownRight className="w-3 h-3 inline" /> -{formatDZD(exerciseExpenses, lang)}
-              </span>
+            <div className="pt-2 border-t border-emerald-200/50 dark:border-emerald-800/40 space-y-1 text-xs">
+              <div className="flex items-center justify-between gap-2 font-mono tabular-nums">
+                <span className="text-emerald-700/90 dark:text-emerald-400 whitespace-nowrap">
+                  <ArrowUpRight className="w-3 h-3 inline" /> +{formatDZD(exerciseIncomes, lang)}
+                </span>
+                <span className="text-rose-600 dark:text-rose-400 font-semibold whitespace-nowrap">
+                  <ArrowDownRight className="w-3 h-3 inline" /> -{formatDZD(operatingExpenses, lang)}
+                </span>
+              </div>
+              {carryOverNet !== 0 && (
+                <div className="text-[11px] font-mono font-semibold text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/50 px-2 py-0.5 rounded-md w-fit whitespace-nowrap">
+                  {lang === 'ar' ? 'ترحيل رصيد 2025 :' : 'Report 2025 :'} {formatDZD(carryOverNet, lang)}
+                </div>
+              )}
             </div>
           </div>
 
@@ -625,7 +649,17 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
               <h3 className="text-sm font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-100 dark:border-slate-800">
                 {lang === 'ar' ? 'توزيع المصاريف حسب الفئة' : 'Répartition des dépenses'}
               </h3>
-              <DonutChart slices={donutSlices} centerLabel={formatDZD(exerciseExpenses, lang)} />
+              <DonutChart
+                slices={donutSlices}
+                centerLabel={t('expenses')}
+                emptyNote={
+                  operatingExpenses === 0 && carryOverNet !== 0
+                    ? lang === 'ar'
+                      ? `0 دج مصاريف تشغيلية في 2026 (ترحيل رصيد 2025 : ${formatDZD(carryOverNet, lang)})`
+                      : `0 DZD de dépenses d'exploitation en 2026 (Report exercice 2025 : ${formatDZD(carryOverNet, lang)})`
+                    : undefined
+                }
+              />
             </div>
           </div>
 
