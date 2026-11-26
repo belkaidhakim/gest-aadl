@@ -57,6 +57,7 @@ import {
   updateHouseRulesRemote,
   updateIncidentStatusRemote,
   updatePaymentRemote,
+  updateTransactionRemote,
   uploadAttachmentRemote,
 } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
@@ -112,6 +113,7 @@ interface AppStoreValue {
     notes: string
   ) => Promise<void>;
   addTransaction: (tx: Transaction) => Promise<void>;
+  updateTransaction: (tx: Transaction) => Promise<void>;
   deleteTransaction: (txId: string) => Promise<void>;
   updateBudgetPlan: (plan: BudgetAllocation[]) => Promise<void>;
   uploadAttachment: (filename: string, dataUrl: string) => Promise<{ url: string; name: string }>;
@@ -814,17 +816,70 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
+  const updateTransaction = useCallback(
+    async (tx: Transaction) => {
+      const updatedTx: Transaction = {
+        ...tx,
+        fund: tx.fund || 'courant',
+        amountDZD: Number(tx.amountDZD),
+      };
+      if (serverConnected) {
+        const res = await updateTransactionRemote(activeBuildingId, updatedTx);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur lors de la modification');
+          return;
+        }
+      }
+      const linkedPaymentId = updatedTx.id.startsWith('tx-rec-') ? updatedTx.id.slice(7) : null;
+      persistLocal(
+        {
+          ...data,
+          payments: linkedPaymentId
+            ? data.payments.map((p) =>
+                p.id === linkedPaymentId
+                  ? {
+                      ...p,
+                      amountDZD: updatedTx.amountDZD,
+                      paymentMethod: updatedTx.paymentMethod || p.paymentMethod,
+                      paymentDate: updatedTx.date || p.paymentDate,
+                    }
+                  : p
+              )
+            : data.payments,
+          transactions: data.transactions.map((t) => (t.id === updatedTx.id ? updatedTx : t)),
+        },
+        activeBuildingId
+      );
+      logLocal(
+        'UPDATE_TRANSACTION',
+        'transaction',
+        `Modification écriture : ${updatedTx.description}`,
+        updatedTx.amountDZD
+      );
+      toast.success('Opération modifiée');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+  );
+
   const deleteTransaction = useCallback(
     async (txId: string) => {
       if (serverConnected) {
         const res = await deleteTransactionRemote(activeBuildingId, txId);
-        if (!res.ok) {
-          toast.error(res.error || 'Erreur');
+        if (!res.ok && !res.error?.includes('introuvable') && !res.error?.includes('404')) {
+          toast.error(res.error || 'Erreur lors de la suppression');
           return;
         }
       }
       const deletedTx = data.transactions.find((t) => t.id === txId);
-      persistLocal({ ...data, transactions: data.transactions.filter((t) => t.id !== txId) }, activeBuildingId);
+      const linkedPaymentId = txId.startsWith('tx-rec-') ? txId.slice(7) : null;
+      persistLocal(
+        {
+          ...data,
+          payments: linkedPaymentId ? data.payments.filter((p) => p.id !== linkedPaymentId) : data.payments,
+          transactions: data.transactions.filter((t) => t.id !== txId),
+        },
+        activeBuildingId
+      );
       logLocal(
         'DELETE_TRANSACTION',
         'transaction',
@@ -1111,6 +1166,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         addPreventiveTask,
         completePreventiveTask,
         addTransaction,
+        updateTransaction,
         deleteTransaction,
         updateBudgetPlan,
         uploadAttachment,

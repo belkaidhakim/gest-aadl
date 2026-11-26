@@ -7,7 +7,6 @@ import {
   ShieldCheck,
   CheckCircle2,
   Wallet,
-  CalendarClock,
   ChevronRight,
   Vote,
   ScrollText,
@@ -23,9 +22,7 @@ import {
   formatDZD,
   formatDateFr,
   formatMonthName,
-  formatShortDate,
   getCurrentMonthStr,
-  getDueStatus,
 } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
@@ -77,14 +74,7 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
   const totalElevators = data.building.elevatorCount || 2;
   const operationalElevators = Math.max(0, totalElevators - openElevatorIncidents.length);
   const elevatorAvailability = Math.round((operationalElevators / totalElevators) * 100);
-
-  const preventiveTasks = data.preventiveTasks || [];
-  const okPreventiveCount = preventiveTasks.filter((task) => getDueStatus(task.nextDueDate) === 'ok').length;
-  const preventiveScore =
-    preventiveTasks.length > 0 ? Math.round((okPreventiveCount / preventiveTasks.length) * 100) : 100;
-  const nextPreventiveTasks = [...preventiveTasks]
-    .sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime())
-    .slice(0, 3);
+  const waterAvailability = openWaterIncidents.length > 0 ? 50 : 100;
 
   const carryOverNet = useMemo(
     () =>
@@ -127,45 +117,48 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
     metric: string;
     tone: string;
   }> = [
-    {
-      tab: 'incidents',
-      icon: <Wrench className="w-4 h-4 text-amber-600 dark:text-amber-400" />,
-      title: lang === 'ar' ? 'الأعطال والأشغال' : 'Pannes & Travaux',
-      metric:
-        openIncidents.length > 0
-          ? lang === 'ar'
-            ? `${openIncidents.length} قيد المتابعة`
-            : `${openIncidents.length} en cours`
-          : lang === 'ar'
-          ? 'لا أعطال'
-          : 'Aucun incident',
-      tone: 'bg-amber-50 dark:bg-amber-950/50 border-amber-200/80 dark:border-amber-900/50',
-    },
-    {
-      tab: 'notices',
-      icon: <Megaphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
-      title: lang === 'ar' ? 'الإعلانات والجمعية' : 'Avis & Décisions AG',
-      metric:
-        lang === 'ar'
-          ? `${data.notices.length} إعلان منشور`
-          : `${data.notices.length} avis publiés`,
-      tone: 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200/80 dark:border-emerald-900/50',
-    },
-    {
-      tab: 'incidents',
-      icon: <CalendarClock className="w-4 h-4 text-sky-600 dark:text-sky-400" />,
-      title: lang === 'ar' ? 'الصيانة الدورية' : 'Entretien Préventif',
-      metric: `${okPreventiveCount}/${preventiveTasks.length} ${t('upToDateShort')}`,
-      tone: 'bg-sky-50 dark:bg-sky-950/50 border-sky-200/80 dark:border-sky-900/50',
-    },
-    {
-      tab: 'directory',
-      icon: <Siren className="w-4 h-4 text-rose-600 dark:text-rose-400" />,
-      title: lang === 'ar' ? 'الطوارئ والمقاولون' : 'Urgences & Contacts',
-      metric: `24h/7j · ${data.vendors.length} ${lang === 'ar' ? 'جهات' : 'contacts'}`,
-      tone: 'bg-rose-50 dark:bg-rose-950/50 border-rose-200/80 dark:border-rose-900/50',
-    },
-  ];
+      {
+        tab: 'incidents',
+        icon: <Wrench className="w-4 h-4 text-amber-600 dark:text-amber-400" />,
+        title: lang === 'ar' ? 'الأعطال والأشغال' : 'Pannes & Travaux',
+        metric:
+          openIncidents.length > 0
+            ? lang === 'ar'
+              ? `${openIncidents.length} قيد المتابعة`
+              : `${openIncidents.length} en cours`
+            : lang === 'ar'
+              ? 'لا أعطال'
+              : 'Aucun incident',
+        tone: 'bg-amber-50 dark:bg-amber-950/50 border-amber-200/80 dark:border-amber-900/50',
+      },
+      {
+        tab: 'notices',
+        icon: <Megaphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
+        title: lang === 'ar' ? 'الإعلانات والجمعية' : 'Avis & Décisions AG',
+        metric:
+          lang === 'ar'
+            ? `${data.notices.length} إعلان منشور`
+            : `${data.notices.length} avis publiés`,
+        tone: 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200/80 dark:border-emerald-900/50',
+      },
+      {
+        tab: 'notices',
+        icon: <Vote className="w-4 h-4 text-sky-600 dark:text-sky-400" />,
+        title: lang === 'ar' ? 'استشارات ومحاضر الجمعية' : 'Votes & PV AG',
+        metric:
+          lang === 'ar'
+            ? `${(data.assemblyMinutes || []).length} محضر مسجل`
+            : `${(data.assemblyMinutes || []).length} PV · ${data.votes.filter((v) => v.status === 'active').length} vote actif`,
+        tone: 'bg-sky-50 dark:bg-sky-950/50 border-sky-200/80 dark:border-sky-900/50',
+      },
+      {
+        tab: 'directory',
+        icon: <Siren className="w-4 h-4 text-rose-600 dark:text-rose-400" />,
+        title: lang === 'ar' ? 'الطوارئ والمقاولون' : 'Urgences & Contacts',
+        metric: `24h/7j · ${data.vendors.length} ${lang === 'ar' ? 'جهات' : 'contacts'}`,
+        tone: 'bg-rose-50 dark:bg-rose-950/50 border-rose-200/80 dark:border-rose-900/50',
+      },
+    ];
 
   return (
     <div className="space-y-6">
@@ -189,16 +182,14 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                 {t('residentPortalBadge')}
               </span>
               <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border ${
-                  hasUrgentIssue
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border ${hasUrgentIssue
                     ? 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                     : 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                }`}
+                  }`}
               >
                 <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    hasUrgentIssue ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'
-                  }`}
+                  className={`w-1.5 h-1.5 rounded-full ${hasUrgentIssue ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'
+                    }`}
                 />
                 {hasUrgentIssue ? t('interventionOngoing') : t('buildingOperational')}
               </span>
@@ -306,9 +297,8 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                 {t('buildingTreasury')}
               </span>
               <div
-                className={`text-2xl font-black font-mono tracking-tight tabular-nums ${
-                  netBalance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'
-                }`}
+                className={`text-2xl font-black font-mono tracking-tight tabular-nums ${netBalance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'
+                  }`}
               >
                 {formatDZD(netBalance, lang)}
               </div>
@@ -349,13 +339,12 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                 {t('elevatorsLabel')} ({totalElevators} {t('cabins')})
               </span>
               <div
-                className={`text-2xl font-black font-mono tracking-tight tabular-nums ${
-                  operationalElevators === totalElevators
+                className={`text-2xl font-black font-mono tracking-tight tabular-nums ${operationalElevators === totalElevators
                     ? 'text-emerald-600 dark:text-emerald-400'
                     : operationalElevators > 0
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
               >
                 {operationalElevators} / {totalElevators}
               </div>
@@ -369,8 +358,8 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                 elevatorAvailability === 100
                   ? 'text-emerald-500'
                   : elevatorAvailability > 0
-                  ? 'text-amber-500'
-                  : 'text-rose-500'
+                    ? 'text-amber-500'
+                    : 'text-rose-500'
               }
             />
           </div>
@@ -381,11 +370,10 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
               return (
                 <span
                   key={idx}
-                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1 rounded-lg font-semibold ${
-                    isDown
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1 rounded-lg font-semibold ${isDown
                       ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
                       : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                  }`}
+                    }`}
                 >
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${isDown ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`}
@@ -408,21 +396,20 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                 {t('waterMaintenance')}
               </span>
               <div
-                className={`text-lg font-extrabold tracking-tight ${
-                  openWaterIncidents.length > 0
+                className={`text-lg font-extrabold tracking-tight ${openWaterIncidents.length > 0
                     ? 'text-amber-600 dark:text-amber-400'
                     : 'text-emerald-600 dark:text-emerald-400'
-                }`}
+                  }`}
               >
                 {openWaterIncidents.length > 0 ? t('boosterAlert') : t('waterNormal')}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {t('preventiveUpToDate')} {okPreventiveCount}/{preventiveTasks.length} {t('upToDateShort')}
+                {openWaterIncidents.length > 0 ? t('maintenanceOngoing') : t('waterNormalDesc')}
               </p>
             </div>
             <CircularGauge
-              percent={preventiveScore}
-              colorClass={preventiveScore >= 75 ? 'text-sky-500' : 'text-amber-500'}
+              percent={waterAvailability}
+              colorClass={waterAvailability === 100 ? 'text-sky-500' : 'text-amber-500'}
             />
           </div>
 
@@ -493,11 +480,10 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                         <div className="space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span
-                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                                inc.priority === 'urgente'
+                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${inc.priority === 'urgente'
                                   ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
                                   : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                              }`}
+                                }`}
                             >
                               {inc.priority === 'urgente' ? t('urgent') : t('inProgress')}
                             </span>
@@ -536,9 +522,8 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                         </div>
                         <div className="space-y-1">
                           <div
-                            className={`h-1.5 rounded-full ${
-                              stepIdx >= 2 ? 'bg-amber-500' : 'bg-slate-200 dark:bg-slate-700'
-                            }`}
+                            className={`h-1.5 rounded-full ${stepIdx >= 2 ? 'bg-amber-500' : 'bg-slate-200 dark:bg-slate-700'
+                              }`}
                           />
                           <span className={stepIdx >= 2 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}>
                             {lang === 'ar' ? '2. قيد الإصلاح' : '2. En cours'}
@@ -556,68 +541,25 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
             )}
           </div>
 
-          {/* Transparent Expense Donut + Upcoming Preventive */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-              <div className="flex items-center gap-2 mb-3">
-                <PieChart className="w-4 h-4 text-emerald-600" />
-                <h2 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                  {t('residentExpenseBreakdownTitle')}
-                </h2>
-              </div>
-              <DonutChart
-                slices={expenseSlices}
-                centerLabel={t('expenses')}
-                emptyNote={
-                  operatingExpenses === 0 && carryOverNet !== 0
-                    ? lang === 'ar'
-                      ? `0 دج مصاريف تشغيلية في 2026 (ترحيل رصيد 2025 : ${formatDZD(carryOverNet, lang)})`
-                      : `0 DZD de dépenses d'exploitation en 2026 (Report exercice 2025 : ${formatDZD(carryOverNet, lang)})`
-                    : undefined
-                }
-              />
+          {/* Transparent Expense Donut */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+            <div className="flex items-center gap-2 mb-3">
+              <PieChart className="w-4 h-4 text-emerald-600" />
+              <h2 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                {t('residentExpenseBreakdownTitle')}
+              </h2>
             </div>
-
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-              <div className="flex items-center justify-between mb-3.5">
-                <div className="flex items-center gap-2">
-                  <CalendarClock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <h2 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                    {t('upcomingPreventiveTitle')}
-                  </h2>
-                </div>
-                <button
-                  onClick={() => onNavigateTab('incidents')}
-                  className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                >
-                  {t('calendarLink')}
-                </button>
-              </div>
-              <div className="space-y-2.5">
-                {nextPreventiveTasks.map((task) => {
-                  const st = getDueStatus(task.nextDueDate);
-                  return (
-                    <div
-                      key={task.id}
-                      className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-2"
-                    >
-                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{task.title}</p>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold shrink-0 ${
-                          st === 'overdue'
-                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                            : st === 'soon'
-                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                        }`}
-                      >
-                        {formatShortDate(task.nextDueDate, lang)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <DonutChart
+              slices={expenseSlices}
+              centerLabel={t('expenses')}
+              emptyNote={
+                operatingExpenses === 0 && carryOverNet !== 0
+                  ? lang === 'ar'
+                    ? `0 دج مصاريف تشغيلية في 2026 (ترحيل رصيد 2025 : ${formatDZD(carryOverNet, lang)})`
+                    : `0 DZD de dépenses d'exploitation en 2026 (Report exercice 2025 : ${formatDZD(carryOverNet, lang)})`
+                  : undefined
+              }
+            />
           </div>
         </div>
 
@@ -648,13 +590,12 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
               >
                 <div className="flex items-center justify-between gap-2 text-[10px]">
                   <span
-                    className={`font-bold uppercase px-1.5 py-0.5 rounded ${
-                      notice.type === 'urgent'
+                    className={`font-bold uppercase px-1.5 py-0.5 rounded ${notice.type === 'urgent'
                         ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
                         : notice.type === 'coupure_eau'
-                        ? 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'
-                        : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
-                    }`}
+                          ? 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'
+                          : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                      }`}
                   >
                     {notice.type === 'coupure_eau' ? t('waterCut') : notice.type}
                   </span>
@@ -683,7 +624,7 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                   {Math.round(
                     (activeVote.options.reduce((a, o) => a + o.votes, 0) /
                       Math.max(1, activeVote.totalEligibleApartments)) *
-                      100
+                    100
                   )}
                   % {t('quorum')}
                 </span>

@@ -442,6 +442,17 @@ function ensureNotice01Synced() {
 }
 
 ensureNotice01Synced();
+
+function ensurePreventiveCleared() {
+  const existingMeta = db.prepare("SELECT value FROM meta WHERE key = 'clear_preventive_tasks_v1'").get();
+  if (existingMeta) return;
+  runInTransaction(() => {
+    db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('clear_preventive_tasks_v1', '1')").run();
+    db.prepare('DELETE FROM preventive_tasks').run();
+  });
+}
+
+ensurePreventiveCleared();
 getOrCreateSessionSecret();
 
 // --- Queries & Mutations ---
@@ -775,12 +786,74 @@ export function addTransaction(buildingId, tx, actor) {
   });
 }
 
+export function updateTransaction(buildingId, txId, tx, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM transactions WHERE building_id = ? AND id = ?').get(buildingId, txId);
+    if (!row) return null;
+    const oldTx = JSON.parse(row.payload);
+    const updatedTx = {
+      ...oldTx,
+      ...tx,
+      id: txId,
+      fund: tx.fund || oldTx.fund || 'courant',
+      amountDZD: Number(tx.amountDZD),
+    };
+    db.prepare(
+      'UPDATE transactions SET date = ?, type = ?, fund = ?, category = ?, amount_dzd = ?, payload = ? WHERE building_id = ? AND id = ?'
+    ).run(
+      updatedTx.date,
+      updatedTx.type,
+      updatedTx.fund,
+      updatedTx.category,
+      updatedTx.amountDZD,
+      JSON.stringify(updatedTx),
+      buildingId,
+      txId
+    );
+
+    if (txId.startsWith('tx-rec-')) {
+      const paymentId = txId.slice(7);
+      const payRow = db.prepare('SELECT payload FROM payments WHERE building_id = ? AND id = ?').get(buildingId, paymentId);
+      if (payRow) {
+        const oldPay = JSON.parse(payRow.payload);
+        const updatedPay = {
+          ...oldPay,
+          amountDZD: updatedTx.amountDZD,
+          paymentMethod: updatedTx.paymentMethod || oldPay.paymentMethod,
+          paymentDate: updatedTx.date || oldPay.paymentDate,
+        };
+        db.prepare('UPDATE payments SET amount_dzd = ?, payment_date = ?, payload = ? WHERE building_id = ? AND id = ?').run(
+          updatedPay.amountDZD,
+          updatedPay.paymentDate,
+          JSON.stringify(updatedPay),
+          buildingId,
+          paymentId
+        );
+      }
+    }
+
+    writeAuditLog(
+      buildingId,
+      actor,
+      'UPDATE_TRANSACTION',
+      'transaction',
+      txId,
+      `Modification écriture : ${updatedTx.description}`,
+      updatedTx.amountDZD
+    );
+    return updatedTx;
+  });
+}
+
 export function deleteTransaction(buildingId, txId, actor) {
   return runInTransaction(() => {
     const row = db.prepare('SELECT payload FROM transactions WHERE building_id = ? AND id = ?').get(buildingId, txId);
     if (!row) return false;
     const tx = JSON.parse(row.payload);
     db.prepare('DELETE FROM transactions WHERE building_id = ? AND id = ?').run(buildingId, txId);
+    if (txId.startsWith('tx-rec-')) {
+      db.prepare('DELETE FROM payments WHERE building_id = ? AND id = ?').run(buildingId, txId.slice(7));
+    }
     writeAuditLog(
       buildingId,
       actor,

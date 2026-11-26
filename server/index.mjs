@@ -11,6 +11,7 @@ import {
   addNotice,
   addPreventiveTask,
   addTransaction,
+  updateTransaction,
   addVendor,
   addVote,
   authenticateUser,
@@ -491,11 +492,26 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 201, { ok: true, transaction: tx });
       }
 
+      if (urlPath.startsWith('/api/transactions/') && method === 'PUT') {
+        if (!canFinance(actor.role)) return sendJson(res, 403, { error: 'Réservé au Président ou Trésorier.' });
+        const txId = decodeURIComponent(urlPath.slice('/api/transactions/'.length));
+        const body = await readJsonBody(req);
+        const tx = body?.transaction;
+        if (!txId || !tx || !Number.isFinite(Number(tx.amountDZD)) || Number(tx.amountDZD) <= 0) {
+          return sendJson(res, 400, { error: 'Opération ou montant invalide.' });
+        }
+        const updated = updateTransaction(buildingId, txId, tx, actor);
+        return sendJson(res, updated ? 200 : 404, {
+          ok: Boolean(updated),
+          ...(updated ? { transaction: updated } : { error: 'Opération introuvable.' }),
+        });
+      }
+
       if (urlPath.startsWith('/api/transactions/') && method === 'DELETE') {
         if (!canFinance(actor.role)) return sendJson(res, 403, { error: 'Réservé au Président ou Trésorier.' });
         const txId = decodeURIComponent(urlPath.slice('/api/transactions/'.length));
         const ok = deleteTransaction(buildingId, txId, actor);
-        return sendJson(res, ok ? 200 : 404, { ok });
+        return sendJson(res, ok ? 200 : 404, { ok, ...(ok ? {} : { error: 'Opération introuvable.' }) });
       }
 
       if (urlPath === '/api/budget' && method === 'PUT') {

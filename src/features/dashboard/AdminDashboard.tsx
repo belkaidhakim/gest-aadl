@@ -5,7 +5,6 @@ import {
   ArrowDownRight,
   Wallet,
   CheckCircle2,
-  AlertTriangle,
   Wrench,
   Phone,
   Users,
@@ -23,7 +22,6 @@ import {
   Printer,
   Send,
   Target,
-  CalendarClock,
   X,
   BellRing,
   MessageSquare,
@@ -36,7 +34,6 @@ import {
   formatShortDate,
   generateFeeReminderText,
   getCurrentMonthStr,
-  getDueStatus,
 } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
@@ -152,12 +149,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .filter((tx) => tx.fund === 'reserve' && tx.type === 'depense')
       .reduce((acc, tx) => acc + tx.amountDZD, 0);
 
-  // Preventive & Curative alerts
-  const preventiveTasks = data.preventiveTasks || [];
-  const overduePreventiveTasks = preventiveTasks.filter((task) => getDueStatus(task.nextDueDate) === 'overdue');
-  const soonPreventiveTasks = preventiveTasks.filter((task) => getDueStatus(task.nextDueDate) === 'soon');
-  const urgentPreventiveTasks = [...overduePreventiveTasks, ...soonPreventiveTasks];
-
+  // Curative alerts
   const openIncidents = data.incidents.filter((i) => i.status !== 'resolu');
   const openElevatorIncidents = openIncidents.filter((i) => i.category === 'ascenseur');
   const openWaterIncidents = openIncidents.filter((i) => i.category === 'surpresseur_eau');
@@ -230,15 +222,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setCopiedDoorCode(false), 1800);
   };
 
-  const handleNavigateToPreventive = () => {
-    try {
-      sessionStorage.setItem('gest_aadl_maint_subtab', 'preventive');
-    } catch {
-      // ignore
-    }
-    onNavigateTab('incidents');
-  };
-
   const handleSelectFloor = (floorNumber: number, paid: number, total: number) => {
     try {
       sessionStorage.setItem(
@@ -285,7 +268,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ...(carryOverNet !== 0 ? [`   • Report exercice 2025 : ${formatDZD(carryOverNet, 'fr')}`] : []),
       `   • Fonds de réserve : ${formatDZD(reserveBalance, 'fr')}${data.building.reserveTargetDZD ? ` (Objectif : ${formatDZD(data.building.reserveTargetDZD, 'fr')})` : ''}`,
       '',
-      `🔧 *Équipements* : Ascenseurs ${operationalElevators}/${totalElevators} opérationnels · Pannes ouvertes : ${openIncidents.length} · Entretiens préventifs en retard : ${overduePreventiveTasks.length}`,
+      `🔧 *Équipements* : Ascenseurs ${operationalElevators}/${totalElevators} opérationnels · Pannes ouvertes : ${openIncidents.length}`,
       '',
       `Syndic ${data.building.buildingNumber} — ${data.building.syndicPresident}`,
     ];
@@ -440,52 +423,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
         </div>
-
-        {/* Discreet Preventive Maintenance Alert Strip */}
-        {urgentPreventiveTasks.length > 0 && (
-          <button
-            type="button"
-            onClick={handleNavigateToPreventive}
-            className={`w-full flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border text-xs transition-colors cursor-pointer text-start ${
-              overduePreventiveTasks.length > 0
-                ? 'bg-rose-50/90 dark:bg-rose-950/35 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200 hover:bg-rose-100/80 dark:hover:bg-rose-950/50'
-                : 'bg-amber-50/90 dark:bg-amber-950/35 border-amber-200 dark:border-amber-900/60 text-amber-800 dark:text-amber-200 hover:bg-amber-100/80'
-            }`}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <CalendarClock
-                className={`w-4 h-4 shrink-0 ${
-                  overduePreventiveTasks.length > 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-amber-600 dark:text-amber-400'
-                }`}
-              />
-              <span className="font-semibold">
-                {overduePreventiveTasks.length > 0
-                  ? lang === 'ar'
-                    ? `${overduePreventiveTasks.length} مهام صيانة وقائية متأخرة${
-                        soonPreventiveTasks.length > 0 ? ` · ${soonPreventiveTasks.length} قريبة الاستحقاق` : ''
-                      }`
-                    : `${overduePreventiveTasks.length} maintenance${
-                        overduePreventiveTasks.length > 1 ? 's' : ''
-                      } préventive${overduePreventiveTasks.length > 1 ? 's' : ''} en retard${
-                        soonPreventiveTasks.length > 0
-                          ? ` · ${soonPreventiveTasks.length} à échéance proche`
-                          : ''
-                      }`
-                  : lang === 'ar'
-                  ? `${soonPreventiveTasks.length} صيانة وقائية قريبة الاستحقاق`
-                  : `${soonPreventiveTasks.length} maintenance${
-                      soonPreventiveTasks.length > 1 ? 's' : ''
-                    } préventive${soonPreventiveTasks.length > 1 ? 's' : ''} à échéance proche`}
-              </span>
-            </div>
-            <span className="inline-flex items-center gap-1 font-bold shrink-0">
-              <span>{lang === 'ar' ? 'عرض الجدول' : 'Voir le calendrier'}</span>
-              <ChevronRight className={`w-3.5 h-3.5 ${isRtl ? 'rotate-180' : ''}`} />
-            </span>
-          </button>
-        )}
 
         {/* 4 Core KPIs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -826,47 +763,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               )}
             </div>
-
-            {urgentPreventiveTasks.length > 0 && (
-              <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-2xl p-5 shadow-xs">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      {t('preventiveAlertsTitle')} ({urgentPreventiveTasks.length})
-                    </h3>
-                  </div>
-                  <button
-                    onClick={handleNavigateToPreventive}
-                    className="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 cursor-pointer"
-                  >
-                    {t('preventiveCalendarLink')}
-                  </button>
-                </div>
-                <div className="space-y-2 text-xs">
-                  {urgentPreventiveTasks.slice(0, 3).map((task) => {
-                    const isLate = getDueStatus(task.nextDueDate) === 'overdue';
-                    return (
-                      <div
-                        key={task.id}
-                        className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800"
-                      >
-                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{task.title}</span>
-                        <span
-                          className={`font-mono shrink-0 px-2 py-0.5 rounded text-[11px] font-bold ${
-                            isLate
-                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
-                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                          }`}
-                        >
-                          {isLate ? t('overdue') : t('dueDate')} : {formatShortDate(task.nextDueDate, lang)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
             <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
@@ -1310,7 +1206,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     Asc. {operationalElevators}/{totalElevators} OK
                   </strong>
                   <span className="text-[11px] text-slate-600">
-                    {openIncidents.length} panne(s) en cours · {overduePreventiveTasks.length} préventif(s) en retard
+                    {openIncidents.length} panne(s) en cours · Surpresseur {openWaterIncidents.length > 0 ? 'en alerte' : 'OK'}
                   </span>
                 </div>
               </div>

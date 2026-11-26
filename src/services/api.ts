@@ -329,6 +329,12 @@ export const addTransactionRemote = (buildingId: string, transaction: Transactio
     body: JSON.stringify({ transaction }),
   });
 
+export const updateTransactionRemote = (buildingId: string, transaction: Transaction) =>
+  apiRequest(`/api/transactions/${encodeURIComponent(transaction.id)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ transaction }),
+  });
+
 export const deleteTransactionRemote = (buildingId: string, txId: string) =>
   apiRequest(`/api/transactions/${encodeURIComponent(txId)}?buildingId=${encodeURIComponent(buildingId)}`, {
     method: 'DELETE',

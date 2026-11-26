@@ -60,7 +60,7 @@ interface TreasuryPageProps {
 
 export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialReport }) => {
   const { lang, t } = useI18n();
-  const { data, role, addTransaction, deleteTransaction, updateBudgetPlan, resetFinancials } = useAppStore();
+  const { data, role, addTransaction, updateTransaction, deleteTransaction, updateBudgetPlan, resetFinancials } = useAppStore();
   const { confirm } = useConfirm();
   const toast = useToast();
   const canEdit = canManageFinance(role);
@@ -71,6 +71,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
 
   // Modals & Drawers
   const [isNewTxModalOpen, setIsNewTxModalOpen] = useState(false);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
@@ -166,6 +167,18 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
 
   const exerciseExpenses = useMemo(
     () => externalExerciseTx.filter((tx) => tx.type === 'depense').reduce((a, tx) => a + tx.amountDZD, 0),
+    [externalExerciseTx]
+  );
+
+  const expenseRecords = useMemo(
+    () =>
+      externalExerciseTx
+        .filter((tx) => tx.type === 'depense')
+        .sort((a, b) => {
+          const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
+          if (diff !== 0) return diff;
+          return b.id.localeCompare(a.id);
+        }),
     [externalExerciseTx]
   );
 
@@ -663,6 +676,124 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
             </div>
           </div>
 
+          {/* Direct Expense Management List on Overview */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <ArrowDownRight className="w-4 h-4 text-rose-600" />
+                  <span>
+                    {lang === 'ar'
+                      ? `سجل المصاريف المسجلة (${expenseRecords.length})`
+                      : `Dépenses enregistrées (${expenseRecords.length})`}
+                  </span>
+                  {exerciseExpenses > 0 && (
+                    <span className="text-xs font-mono font-bold text-rose-600 dark:text-rose-400">
+                      — {formatDZD(exerciseExpenses, lang)}
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {lang === 'ar'
+                    ? 'يمكنك تعديل أو حذف أي مصروف مباشرة من هذه القائمة.'
+                    : 'Modifiez ou supprimez directement une dépense ou un report comptable.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 no-print">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setIsNewTxModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{lang === 'ar' ? 'تسجيل مصروف' : 'Ajouter une dépense'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSubTab('ledger')}
+                  className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                >
+                  {lang === 'ar' ? 'فتح السجل الكامل ←' : 'Voir le Grand Livre →'}
+                </button>
+              </div>
+            </div>
+
+            {expenseRecords.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                {lang === 'ar'
+                  ? 'لا توجد مصاريف مسجلة في هذه الفترة.'
+                  : 'Aucune dépense enregistrée sur cette période.'}
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {expenseRecords.map((tx) => {
+                  const isCarryOver = isCarryOverTransaction(tx);
+                  return (
+                    <div
+                      key={tx.id}
+                      onClick={() => setSelectedTx(tx)}
+                      className="py-3 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 rounded-xl px-2 -mx-2 transition-colors cursor-pointer text-xs"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 dark:text-white">{tx.description}</span>
+                          {isCarryOver && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                              {lang === 'ar' ? 'ترحيل سابق' : 'Report antérieur'}
+                            </span>
+                          )}
+                          {tx.attachmentDataUrl && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                              <Paperclip className="w-3 h-3" />
+                              {lang === 'ar' ? 'مرفق' : 'Justificatif'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="font-mono">{formatShortDate(tx.date, lang)}</span> ·{' '}
+                          {getCategoryLabel(tx.category, lang)} · {getPaymentMethodLabel(tx.paymentMethod, lang)}
+                          {tx.referenceDoc ? ` · ${tx.referenceDoc}` : ''}
+                        </div>
+                      </div>
+
+                      <div
+                        className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="font-mono font-extrabold text-sm text-rose-600 dark:text-rose-400 tabular-nums whitespace-nowrap">
+                          - {formatDZD(tx.amountDZD, lang)}
+                        </span>
+                        {canEdit && (
+                          <div className="flex items-center gap-1.5 no-print">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTx(tx)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 rounded-lg border border-amber-200 dark:border-amber-800 cursor-pointer"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>{t('edit')}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTx(tx)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 rounded-lg border border-rose-200 dark:border-rose-800 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>{lang === 'ar' ? 'حذف' : 'Supprimer'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Payment Method Reconciliation + Vigilance */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
@@ -949,18 +1080,29 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
                         </td>
                         {canEdit && (
                           <td
-                            className="py-3 px-4 text-end no-print"
+                            className="py-3 px-4 text-end no-print whitespace-nowrap"
                             onClick={(e) => {
                               e.stopPropagation();
                             }}
                           >
-                            <button
-                              onClick={() => handleDeleteTx(tx)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
-                              title={lang === 'ar' ? 'حذف' : 'Supprimer'}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingTx(tx)}
+                                className="p-1.5 text-amber-600 hover:text-amber-700 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                                title={t('edit')}
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTx(tx)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                                title={lang === 'ar' ? 'حذف' : 'Supprimer'}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -1361,7 +1503,18 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
             )}
 
             {canEdit && (
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingTx(selectedTx);
+                    setSelectedTx(null);
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  <span>{lang === 'ar' ? 'تعديل هذه العملية' : 'Modifier cette opération'}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => handleDeleteTx(selectedTx)}
@@ -1383,6 +1536,19 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
           reserveBalance={reserveBalance}
           onClose={() => setIsNewTxModalOpen(false)}
           onSubmit={addTransaction}
+        />
+      )}
+
+      {editingTx && canEdit && (
+        <TransactionModal
+          courantBalance={courantBalance}
+          reserveBalance={reserveBalance}
+          initialTransaction={editingTx}
+          onClose={() => setEditingTx(null)}
+          onSubmit={async (updated) => {
+            await updateTransaction(updated);
+            setEditingTx(null);
+          }}
         />
       )}
 

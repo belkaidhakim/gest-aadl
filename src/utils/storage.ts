@@ -34,9 +34,7 @@ export function normalizeAppData(parsed: Partial<AppData> | null | undefined): A
     budgetPlan: Array.isArray(parsed.budgetPlan) && parsed.budgetPlan.length > 0
       ? parsed.budgetPlan
       : initialAppData.budgetPlan,
-    preventiveTasks: Array.isArray(parsed.preventiveTasks)
-      ? parsed.preventiveTasks
-      : initialAppData.preventiveTasks,
+    preventiveTasks: [],
     assemblyMinutes: Array.isArray(parsed.assemblyMinutes)
       ? parsed.assemblyMinutes
       : initialAppData.assemblyMinutes,

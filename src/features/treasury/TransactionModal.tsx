@@ -33,6 +33,7 @@ interface TransactionModalProps {
   courantBalance: number;
   reserveBalance: number;
   defaultType?: TransactionType;
+  initialTransaction?: Transaction | null;
   onClose: () => void;
   onSubmit: (tx: Transaction) => Promise<void> | void;
 }
@@ -41,12 +42,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   courantBalance,
   reserveBalance,
   defaultType = 'depense',
+  initialTransaction = null,
   onClose,
   onSubmit,
 }) => {
   const { lang, t } = useI18n();
   const { uploadAttachment } = useAppStore();
   const toast = useToast();
+  const isEditing = Boolean(initialTransaction);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -61,18 +64,39 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     date: string;
     attachmentName?: string;
     attachmentDataUrl?: string;
-  }>({
-    type: defaultType,
-    fund: 'courant',
-    category: defaultType === 'recette' ? 'Cotisations Copropriétaires' : 'Facture Électricité Sonelgaz',
-    amountDZD: 10000,
-    description: '',
-    referenceDoc: '',
-    paymentMethod: 'Espèces',
-    date: new Date().toISOString().slice(0, 10),
+  }>(() => {
+    if (initialTransaction) {
+      return {
+        type: initialTransaction.type,
+        fund: initialTransaction.fund || 'courant',
+        category: initialTransaction.category,
+        amountDZD: initialTransaction.amountDZD,
+        description: initialTransaction.description,
+        referenceDoc: initialTransaction.referenceDoc || '',
+        paymentMethod: initialTransaction.paymentMethod,
+        date: (initialTransaction.date || new Date().toISOString()).slice(0, 10),
+        attachmentName: initialTransaction.attachmentName,
+        attachmentDataUrl: initialTransaction.attachmentDataUrl,
+      };
+    }
+    return {
+      type: defaultType,
+      fund: 'courant',
+      category: defaultType === 'recette' ? 'Cotisations Copropriétaires' : 'Facture Électricité Sonelgaz',
+      amountDZD: 10000,
+      description: '',
+      referenceDoc: '',
+      paymentMethod: 'Espèces',
+      date: new Date().toISOString().slice(0, 10),
+    };
   });
 
-  const selectedFundBalance = form.fund === 'reserve' ? reserveBalance : courantBalance;
+  const baseFundBalance = form.fund === 'reserve' ? reserveBalance : courantBalance;
+  const selectedFundBalance =
+    initialTransaction && (initialTransaction.fund || 'courant') === form.fund
+      ? baseFundBalance +
+        (initialTransaction.type === 'depense' ? initialTransaction.amountDZD : -initialTransaction.amountDZD)
+      : baseFundBalance;
   const exceedsBalance = form.type === 'depense' && Number(form.amountDZD) > selectedFundBalance;
 
   const isImageUrl = (url?: string) =>
@@ -145,7 +169,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     setSubmitting(true);
     try {
       await onSubmit({
-        id: `tx-${Date.now()}`,
+        id: initialTransaction ? initialTransaction.id : `tx-${Date.now()}`,
         date: form.date,
         type: form.type,
         fund: form.fund,
@@ -163,7 +187,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
   };
 
-  const categoryOptions = form.type === 'depense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
+  const baseCategories = form.type === 'depense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
+  const categoryOptions = baseCategories.includes(form.category)
+    ? baseCategories
+    : [form.category, ...baseCategories];
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 no-print">
@@ -172,7 +199,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           <div className="flex items-center gap-2">
             <Wallet className="w-5 h-5 text-emerald-600" />
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              {lang === 'ar' ? 'تسجيل عملية مالية في الصندوق' : 'Nouvelle opération de caisse'}
+              {isEditing
+                ? lang === 'ar'
+                  ? 'تعديل العملية المالية'
+                  : 'Modifier l’opération de caisse'
+                : lang === 'ar'
+                ? 'تسجيل عملية مالية في الصندوق'
+                : 'Nouvelle opération de caisse'}
             </h3>
           </div>
           <button

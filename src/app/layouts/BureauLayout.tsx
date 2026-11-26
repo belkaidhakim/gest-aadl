@@ -29,7 +29,6 @@ import {
 import { useAppStore } from '../../stores/AppStore';
 import { useI18n } from '../../i18n';
 import { canManageFinance, canManageSettings } from '../../utils/permissions';
-import { getDueStatus } from '../../utils/helpers';
 import { AppTab } from '../useRoute';
 
 interface BureauLayoutProps {
@@ -75,8 +74,7 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
       i.messages.length > 0 &&
       i.messages[i.messages.length - 1].senderRole === 'resident'
   );
-  const overdueTasks = (data.preventiveTasks || []).filter((task) => getDueStatus(task.nextDueDate) === 'overdue');
-  const totalAlerts = urgentIncidents.length + awaitingChatIncidents.length + overdueTasks.length;
+  const totalAlerts = urgentIncidents.length + awaitingChatIncidents.length;
 
   const roleBadgeLabel =
     role === 'president'
@@ -390,19 +388,6 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
                         >
                           <div className="font-bold truncate">{inc.title}</div>
                           <div className="text-[10px] opacity-80">{inc.location}</div>
-                        </button>
-                      ))}
-                      {overdueTasks.map((task) => (
-                        <button
-                          key={task.id}
-                          onClick={() => {
-                            onNavigate('incidents');
-                            setAlertsOpen(false);
-                          }}
-                          className="w-full text-start p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 cursor-pointer"
-                        >
-                          <div className="font-bold truncate">{task.title}</div>
-                          <div className="text-[10px] opacity-80">{t('overdue')} · {task.nextDueDate}</div>
                         </button>
                       ))}
                     </div>

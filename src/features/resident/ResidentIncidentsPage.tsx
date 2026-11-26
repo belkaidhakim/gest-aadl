@@ -6,7 +6,6 @@ import {
   Zap,
   ShieldCheck,
   Search,
-  CalendarClock,
   CheckCircle2,
   Clock,
   AlertTriangle,
@@ -19,9 +18,8 @@ import {
 import {
   Incident,
   IncidentCategory,
-  PreventiveFrequency,
 } from '../../types';
-import { formatDZD, formatDateFr, formatShortDate, getDueStatus } from '../../utils/helpers';
+import { formatDZD, formatDateFr } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -38,7 +36,6 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
   const { lang, isRtl, t } = useI18n();
   const { data, reportResidentIncident } = useAppStore();
 
-  const [subTab, setSubTab] = useState<'incidents' | 'preventive'>('incidents');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'resolu'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -47,8 +44,6 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   const openIncidents = data.incidents.filter((i) => i.status !== 'resolu');
-  const preventiveTasks = data.preventiveTasks || [];
-  const okPrevCount = preventiveTasks.filter((task) => getDueStatus(task.nextDueDate) === 'ok').length;
 
   const healthTiles: Array<{
     key: string;
@@ -56,31 +51,31 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
     label: string;
     icon: React.ReactNode;
   }> = [
-    {
-      key: 'ascenseur',
-      match: ['ascenseur'],
-      label: lang === 'ar' ? 'المصاعد' : 'Ascenseurs',
-      icon: <Layers className="w-4 h-4 text-amber-500" />,
-    },
-    {
-      key: 'surpresseur_eau',
-      match: ['surpresseur_eau', 'plomberie_evacuation'],
-      label: lang === 'ar' ? 'المياه والضغط' : 'Eau & Surpresseur',
-      icon: <Droplet className="w-4 h-4 text-sky-500" />,
-    },
-    {
-      key: 'electricite_eclairage',
-      match: ['electricite_eclairage'],
-      label: lang === 'ar' ? 'الكهرباء والإنارة' : 'Électricité & Éclairage',
-      icon: <Zap className="w-4 h-4 text-yellow-500" />,
-    },
-    {
-      key: 'securite_gardiennage',
-      match: ['securite_gardiennage', 'porte_interphone'],
-      label: lang === 'ar' ? 'الأمن والمدخل' : 'Sécurité & Accès',
-      icon: <ShieldCheck className="w-4 h-4 text-emerald-500" />,
-    },
-  ];
+      {
+        key: 'ascenseur',
+        match: ['ascenseur'],
+        label: lang === 'ar' ? 'المصاعد' : 'Ascenseurs',
+        icon: <Layers className="w-4 h-4 text-amber-500" />,
+      },
+      {
+        key: 'surpresseur_eau',
+        match: ['surpresseur_eau', 'plomberie_evacuation'],
+        label: lang === 'ar' ? 'المياه والضغط' : 'Eau & Surpresseur',
+        icon: <Droplet className="w-4 h-4 text-sky-500" />,
+      },
+      {
+        key: 'electricite_eclairage',
+        match: ['electricite_eclairage'],
+        label: lang === 'ar' ? 'الكهرباء والإنارة' : 'Électricité & Éclairage',
+        icon: <Zap className="w-4 h-4 text-yellow-500" />,
+      },
+      {
+        key: 'securite_gardiennage',
+        match: ['securite_gardiennage', 'porte_interphone'],
+        label: lang === 'ar' ? 'الأمن والمدخل' : 'Sécurité & Accès',
+        icon: <ShieldCheck className="w-4 h-4 text-emerald-500" />,
+      },
+    ];
 
   const getCategoryIcon = (category: IncidentCategory) => {
     switch (category) {
@@ -123,25 +118,6 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
     }
   };
 
-  const getFrequencyLabel = (f: PreventiveFrequency) => {
-    if (lang === 'ar') {
-      switch (f) {
-        case 'hebdomadaire': return 'أسبوعية';
-        case 'mensuel': return 'شهرية';
-        case 'trimestriel': return 'فصلية';
-        case 'semestriel': return 'نصف سنوية';
-        case 'annuel': return 'سنوية';
-      }
-    }
-    switch (f) {
-      case 'hebdomadaire': return 'Hebdomadaire';
-      case 'mensuel': return 'Mensuelle';
-      case 'trimestriel': return 'Trimestrielle';
-      case 'semestriel': return 'Semestrielle';
-      case 'annuel': return 'Annuelle';
-    }
-  };
-
   const filteredIncidents = useMemo(() => {
     return data.incidents
       .filter((inc) => {
@@ -165,15 +141,9 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
       .sort((a, b) => new Date(b.reportedDate).getTime() - new Date(a.reportedDate).getTime());
   }, [data.incidents, statusFilter, categoryFilter, searchQuery]);
 
-  const sortedPreventive = useMemo(() => {
-    return [...preventiveTasks].sort(
-      (a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime()
-    );
-  }, [preventiveTasks]);
-
   return (
     <div className="space-y-6">
-      {/* Header + Segmented View Switch */}
+      {/* Header */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -182,45 +152,20 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
               <h1 className="text-lg font-extrabold text-slate-900 dark:text-white">
                 {lang === 'ar' ? 'حالة التجهيزات، الأعطال والأشغال' : 'Suivi des Pannes & Travaux'}
               </h1>
+              {openIncidents.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold">
+                  {openIncidents.length}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {lang === 'ar'
-                ? 'متابعة شفافة لحالة المصاعد، خزان المياه، الأشغال الجارية وجدول الصيانة الوقائية.'
-                : 'Suivi en temps réel des pannes signalées, travaux en cours et entretiens préventifs de la cage.'}
+                ? 'متابعة شفافة لحالة المصاعد، خزان المياه، الأشغال الجارية والمحادثة مع الرئيس.'
+                : 'Suivi en temps réel des pannes signalées, travaux en cours et discussion directe avec le Président.'}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
-            <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
-              <button
-                onClick={() => setSubTab('incidents')}
-                className={`px-3.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer ${
-                  subTab === 'incidents'
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                <Wrench className="w-3.5 h-3.5" />
-                <span>{lang === 'ar' ? 'الأعطال والأشغال' : 'Pannes & Travaux'}</span>
-                {openIncidents.length > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold">
-                    {openIncidents.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setSubTab('preventive')}
-                className={`px-3.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer ${
-                  subTab === 'preventive'
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                <CalendarClock className="w-3.5 h-3.5" />
-                <span>{lang === 'ar' ? 'الصيانة الدورية' : 'Calendrier Préventif'}</span>
-              </button>
-            </div>
-
             <button
               type="button"
               onClick={() => setIsReportModalOpen(true)}
@@ -242,14 +187,12 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                 type="button"
                 key={tile.key}
                 onClick={() => {
-                  setSubTab('incidents');
                   setCategoryFilter(active ? 'all' : tile.key);
                 }}
-                className={`text-start p-3.5 rounded-xl border transition-all cursor-pointer ${
-                  active
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 ring-1 ring-emerald-400/50'
-                    : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                }`}
+                className={`text-start p-3.5 rounded-xl border transition-all cursor-pointer ${active
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 ring-1 ring-emerald-400/50'
+                  : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
               >
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -257,25 +200,23 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                     <span>{tile.label}</span>
                   </div>
                   <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      tileOpen.length > 0 ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
-                    }`}
+                    className={`w-2 h-2 rounded-full shrink-0 ${tileOpen.length > 0 ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
+                      }`}
                   />
                 </div>
                 <div
-                  className={`text-[11px] font-semibold ${
-                    tileOpen.length > 0
-                      ? 'text-amber-700 dark:text-amber-400'
-                      : 'text-emerald-700 dark:text-emerald-400'
-                  }`}
+                  className={`text-[11px] font-semibold ${tileOpen.length > 0
+                    ? 'text-amber-700 dark:text-amber-400'
+                    : 'text-emerald-700 dark:text-emerald-400'
+                    }`}
                 >
                   {tileOpen.length > 0
                     ? lang === 'ar'
                       ? `${tileOpen.length} تدخل جاري`
                       : `${tileOpen.length} intervention(s)`
                     : lang === 'ar'
-                    ? 'في حالة ممتازة'
-                    : 'Opérationnel'}
+                      ? 'في حالة ممتازة'
+                      : 'Opérationnel'}
                 </div>
               </button>
             );
@@ -283,9 +224,8 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
         </div>
       </div>
 
-      {/* SUBTAB 1: Incidents & Works */}
-      {subTab === 'incidents' && (
-        <>
+      {/* Incidents & Works */}
+      <>
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="inline-flex rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1">
               {[
@@ -299,11 +239,10 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                 <button
                   key={st.key}
                   onClick={() => setStatusFilter(st.key)}
-                  className={`px-3 py-1.5 rounded-lg font-semibold cursor-pointer ${
-                    statusFilter === st.key
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg font-semibold cursor-pointer ${statusFilter === st.key
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
                 >
                   {st.label}
                 </button>
@@ -367,11 +306,10 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') setSelectedIncident(inc);
                     }}
-                    className={`text-start bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs hover:shadow-md transition-all space-y-3.5 cursor-pointer ${
-                      inc.priority === 'urgente' && !isResolved
-                        ? 'border-rose-300 dark:border-rose-800/80'
-                        : 'border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700'
-                    }`}
+                    className={`text-start bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs hover:shadow-md transition-all space-y-3.5 cursor-pointer ${inc.priority === 'urgente' && !isResolved
+                      ? 'border-rose-300 dark:border-rose-800/80'
+                      : 'border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700'
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1 min-w-0">
@@ -425,17 +363,16 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                       </div>
                       <div className="space-y-1">
                         <div
-                          className={`h-1.5 rounded-full ${
-                            step >= 2 ? (step === 3 ? 'bg-emerald-500' : 'bg-amber-500') : 'bg-slate-200 dark:bg-slate-700'
-                          }`}
+                          className={`h-1.5 rounded-full ${step >= 2 ? (step === 3 ? 'bg-emerald-500' : 'bg-amber-500') : 'bg-slate-200 dark:bg-slate-700'
+                            }`}
                         />
                         <span
                           className={
                             step === 3
                               ? 'text-emerald-700 dark:text-emerald-400'
                               : step === 2
-                              ? 'text-amber-600 dark:text-amber-400'
-                              : 'text-slate-400'
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-slate-400'
                           }
                         >
                           {lang === 'ar' ? '2. قيد الإصلاح' : '2. En cours'}
@@ -443,9 +380,8 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                       </div>
                       <div className="space-y-1">
                         <div
-                          className={`h-1.5 rounded-full ${
-                            step === 3 ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'
-                          }`}
+                          className={`h-1.5 rounded-full ${step === 3 ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'
+                            }`}
                         />
                         <span className={step === 3 ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}>
                           {lang === 'ar' ? '3. تم الحل' : '3. Résolu'}
@@ -483,111 +419,7 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
               })}
             </div>
           )}
-        </>
-      )}
-
-      {/* SUBTAB 2: Preventive Calendar */}
-      {subTab === 'preventive' && (
-        <div className="space-y-4">
-          <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/50 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 font-semibold">
-              <CalendarClock className="w-4 h-4 text-emerald-600" />
-              <span>
-                {lang === 'ar'
-                  ? `نسبة الالتزام بالصيانة الدورية: ${okPrevCount}/${preventiveTasks.length}`
-                  : `Conformité préventive : ${okPrevCount} / ${preventiveTasks.length} contrôles à jour`}
-              </span>
-            </div>
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
-              {lang === 'ar'
-                ? 'تشمل المصاعد، خزان المياه، ومطفآت الحريق'
-                : 'Ascenseurs, bâche à eau, électricité & extincteurs'}
-            </span>
-          </div>
-
-          {sortedPreventive.length === 0 ? (
-            <EmptyState
-              icon={<CalendarClock className="w-7 h-7" />}
-              title={lang === 'ar' ? 'لا توجد مهام صيانة دورية مسجلة' : 'Aucune tâche préventive planifiée'}
-            />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {sortedPreventive.map((task) => {
-                const st = getDueStatus(task.nextDueDate);
-                return (
-                  <div
-                    key={task.id}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          {getCategoryIcon(task.equipment)}
-                          <h3 className="text-sm font-bold text-slate-900 dark:text-white">{task.title}</h3>
-                        </div>
-                        <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
-                          <span>{getCategoryLabel(task.equipment)}</span>
-                          <span>•</span>
-                          <span>{getFrequencyLabel(task.frequency)}</span>
-                          {task.assignedVendor && (
-                            <>
-                              <span>•</span>
-                              <span>{task.assignedVendor}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      <span
-                        className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
-                          st === 'overdue'
-                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300'
-                            : st === 'soon'
-                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
-                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
-                        }`}
-                      >
-                        {st === 'overdue'
-                          ? lang === 'ar'
-                            ? 'متأخر'
-                            : 'En retard'
-                          : st === 'soon'
-                          ? lang === 'ar'
-                            ? 'قريباً'
-                            : 'À prévoir'
-                          : lang === 'ar'
-                          ? 'في الوقت'
-                          : 'À jour'}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 text-xs">
-                      <div>
-                        <span className="text-slate-400 block text-[11px]">
-                          {lang === 'ar' ? 'آخر فحص' : 'Dernier contrôle'}
-                        </span>
-                        <strong className="font-mono text-slate-800 dark:text-slate-200">
-                          {formatShortDate(task.lastDoneDate, lang)}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[11px]">
-                          {lang === 'ar' ? 'الموعد القادم' : 'Prochaine échéance'}
-                        </span>
-                        <strong className="font-mono text-slate-900 dark:text-white">
-                          {formatShortDate(task.nextDueDate, lang)}
-                        </strong>
-                      </div>
-                    </div>
-
-                    {task.notes && <p className="text-xs text-slate-600 dark:text-slate-300">{task.notes}</p>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      </>
 
       {/* Read-Only Incident Detail Drawer */}
       <SlideOverDrawer
@@ -608,25 +440,24 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                 {getCategoryLabel(selectedIncident.category)}
               </span>
               <span
-                className={`px-2.5 py-1 rounded-full font-bold uppercase ${
-                  selectedIncident.status === 'resolu'
-                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                    : selectedIncident.priority === 'urgente'
+                className={`px-2.5 py-1 rounded-full font-bold uppercase ${selectedIncident.status === 'resolu'
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                  : selectedIncident.priority === 'urgente'
                     ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
                     : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                }`}
+                  }`}
               >
                 {selectedIncident.status === 'resolu'
                   ? lang === 'ar'
                     ? 'تم الحل'
                     : 'Résolu'
                   : selectedIncident.status === 'en_cours'
-                  ? lang === 'ar'
-                    ? 'قيد الإصلاح'
-                    : 'En cours'
-                  : lang === 'ar'
-                  ? 'مُبلّغ عنه'
-                  : 'Signalé'}
+                    ? lang === 'ar'
+                      ? 'قيد الإصلاح'
+                      : 'En cours'
+                    : lang === 'ar'
+                      ? 'مُبلّغ عنه'
+                      : 'Signalé'}
               </span>
             </div>
 

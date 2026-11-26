@@ -299,6 +299,28 @@ async function ensureInitialized(sql) {
       }
     }
 
+    // One-time removal of preventive maintenance tasks across buildings
+    const clearPrevLock = await sql`
+      INSERT INTO gest_meta (key, value)
+      VALUES ('clear_preventive_tasks_v1', '1')
+      ON CONFLICT (key) DO NOTHING
+      RETURNING key
+    `;
+    if (clearPrevLock.length > 0) {
+      const allBldgs = await sql`SELECT id, payload FROM gest_buildings`;
+      for (const bRow of allBldgs) {
+        const bState = parsePayload(bRow.payload);
+        if (bState && Array.isArray(bState.preventiveTasks) && bState.preventiveTasks.length > 0) {
+          await sql`
+            UPDATE gest_buildings
+            SET payload = ${JSON.stringify({ ...bState, preventiveTasks: [] })}::jsonb,
+                updated_at = ${new Date().toISOString()}
+            WHERE id = ${bRow.id}
+          `;
+        }
+      }
+    }
+
     return cachedSessionSecret;
   })();
 
@@ -956,15 +978,69 @@ export default {
         return jsonResponse({ ok: true, transaction: cleanTx }, 201);
       }
 
+      if (urlPath.startsWith('/api/transactions/') && method === 'PUT') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const txId = decodeURIComponent(urlPath.slice('/api/transactions/'.length));
+        const body = await readJsonBody(request);
+        const tx = body?.transaction;
+        if (!txId || !tx || !Number.isFinite(Number(tx.amountDZD)) || Number(tx.amountDZD) <= 0) {
+          return jsonResponse({ error: 'Opération ou montant invalide.' }, 400);
+        }
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const oldTx = (state.transactions || []).find((t) => t.id === txId);
+        if (!oldTx) return jsonResponse({ error: 'Opération introuvable.' }, 404);
+        const updatedTx = {
+          ...oldTx,
+          ...tx,
+          id: txId,
+          fund: tx.fund || oldTx.fund || 'courant',
+          amountDZD: Number(tx.amountDZD),
+        };
+        const linkedPaymentId = txId.startsWith('tx-rec-') ? txId.slice(7) : null;
+        const nextPayments = linkedPaymentId
+          ? (state.payments || []).map((p) =>
+              p.id === linkedPaymentId
+                ? {
+                    ...p,
+                    amountDZD: updatedTx.amountDZD,
+                    paymentMethod: updatedTx.paymentMethod || p.paymentMethod,
+                    paymentDate: updatedTx.date || p.paymentDate,
+                  }
+                : p
+            )
+          : state.payments || [];
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          payments: nextPayments,
+          transactions: (state.transactions || []).map((t) => (t.id === txId ? updatedTx : t)),
+        });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          actor,
+          'UPDATE_TRANSACTION',
+          'transaction',
+          txId,
+          `Modification écriture : ${updatedTx.description}`,
+          updatedTx.amountDZD
+        );
+        return jsonResponse({ ok: true, transaction: updatedTx });
+      }
+
       if (urlPath.startsWith('/api/transactions/') && method === 'DELETE') {
         if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
         const txId = decodeURIComponent(urlPath.slice('/api/transactions/'.length));
         const state = await getBuildingState(sql, buildingId);
-        if (!state) return jsonResponse({ ok: false }, 404);
+        if (!state) return jsonResponse({ ok: false, error: 'Bâtiment introuvable.' }, 404);
         const targetTx = (state.transactions || []).find((t) => t.id === txId);
-        if (!targetTx) return jsonResponse({ ok: false }, 404);
+        if (!targetTx) return jsonResponse({ ok: false, error: 'Opération introuvable.' }, 404);
+        const linkedPaymentId = txId.startsWith('tx-rec-') ? txId.slice(7) : null;
         await saveBuildingState(sql, buildingId, {
           ...state,
+          payments: linkedPaymentId
+            ? (state.payments || []).filter((p) => p.id !== linkedPaymentId)
+            : state.payments || [],
           transactions: (state.transactions || []).filter((t) => t.id !== txId),
         });
         await writeAuditLog(

@@ -9,7 +9,6 @@ import {
   Layers,
   Zap,
   Check,
-  CalendarClock,
   Scale,
   ShieldCheck,
   MessageSquare,
@@ -17,17 +16,14 @@ import {
 import {
   Incident,
   IncidentCategory,
-  PreventiveFrequency,
-  PreventiveTask,
 } from '../../types';
-import { formatDZD, formatDateFr, formatShortDate, getDueStatus } from '../../utils/helpers';
+import { formatDZD, formatDateFr } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { canManageMaintenance } from '../../utils/permissions';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { IncidentChatDrawer } from '../../components/IncidentChatDrawer';
 import { AddQuoteModal, NewIncidentModal, ResolveIncidentModal } from './IncidentModals';
-import { CompletePreventiveModal, NewPreventiveModal } from './PreventiveModals';
 
 export const MaintenancePage: React.FC = () => {
   const { lang, t } = useI18n();
@@ -38,34 +34,23 @@ export const MaintenancePage: React.FC = () => {
     updateIncidentStatus,
     addIncidentQuote,
     selectIncidentQuote,
-    addPreventiveTask,
-    completePreventiveTask,
   } = useAppStore();
 
   const canManage = canManageMaintenance(role);
-  const [subTab, setSubTab] = useState<'curative' | 'preventive'>('curative');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [resolvingIncident, setResolvingIncident] = useState<Incident | null>(null);
   const [quoteIncident, setQuoteIncident] = useState<Incident | null>(null);
-  const [isNewPrevModalOpen, setIsNewPrevModalOpen] = useState(false);
-  const [completingTask, setCompletingTask] = useState<PreventiveTask | null>(null);
   const [chatIncident, setChatIncident] = useState<Incident | null>(null);
 
   useEffect(() => {
     try {
-      const jumpTab = sessionStorage.getItem('gest_aadl_maint_subtab');
-      if (jumpTab === 'preventive') {
-        setSubTab('preventive');
-        sessionStorage.removeItem('gest_aadl_maint_subtab');
-      }
       const openChatId = sessionStorage.getItem('gest_aadl_open_chat_inc');
       if (openChatId) {
         const found = data.incidents.find((i) => i.id === openChatId);
         if (found) {
-          setSubTab('curative');
           setChatIncident(found);
         }
         sessionStorage.removeItem('gest_aadl_open_chat_inc');
@@ -76,9 +61,6 @@ export const MaintenancePage: React.FC = () => {
   }, [data.incidents]);
 
   const quoteThreshold = data.building.quoteThresholdDZD || 20000;
-  const preventiveTasks = data.preventiveTasks || [];
-  const overdueTasks = preventiveTasks.filter((task) => getDueStatus(task.nextDueDate) === 'overdue');
-  const soonTasks = preventiveTasks.filter((task) => getDueStatus(task.nextDueDate) === 'soon');
 
   const getCategoryIcon = (category: IncidentCategory) => {
     switch (category) {
@@ -121,25 +103,6 @@ export const MaintenancePage: React.FC = () => {
     }
   };
 
-  const getFrequencyLabel = (f: PreventiveFrequency) => {
-    if (lang === 'ar') {
-      switch (f) {
-        case 'hebdomadaire': return 'أسبوعية';
-        case 'mensuel': return 'شهرية';
-        case 'trimestriel': return 'فصلية (3 أشهر)';
-        case 'semestriel': return 'نصف سنوية (6 أشهر)';
-        case 'annuel': return 'سنوية';
-      }
-    }
-    switch (f) {
-      case 'hebdomadaire': return 'Hebdomadaire';
-      case 'mensuel': return 'Mensuelle';
-      case 'trimestriel': return 'Trimestrielle';
-      case 'semestriel': return 'Semestrielle (6 mois)';
-      case 'annuel': return 'Annuelle';
-    }
-  };
-
   const filteredIncidents = data.incidents
     .filter((inc) => {
       if (filterCategory !== 'all' && inc.category !== filterCategory) return false;
@@ -153,7 +116,7 @@ export const MaintenancePage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header & Sub-tabs */}
+      {/* Header & Filters */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -162,51 +125,21 @@ export const MaintenancePage: React.FC = () => {
               <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
                 {t('incidentsTitle')}
               </h2>
+              {openIncidentsCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold">
+                  {openIncidentsCount} {lang === 'ar' ? 'جاري' : 'en cours'}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {lang === 'ar'
-                ? 'متابعة أعطال المصاعد وخزان المياه وجدول الصيانة الوقائية.'
-                : 'Suivi curatif des pannes, comparateur de devis et calendrier préventif.'}
+                ? 'متابعة أعطال المصاعد وخزان المياه والمحادثة المباشرة مع السكان.'
+                : 'Suivi des pannes signalées, chat direct avec les résidents et comparateur de devis.'}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
-              <button
-                onClick={() => setSubTab('curative')}
-                className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer ${
-                  subTab === 'curative'
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                <Wrench className="w-3.5 h-3.5" />
-                <span>{lang === 'ar' ? 'الأعطال الجارية' : 'Incidents & Pannes'}</span>
-                {openIncidentsCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold">
-                    {openIncidentsCount}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setSubTab('preventive')}
-                className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer ${
-                  subTab === 'preventive'
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                <CalendarClock className="w-3.5 h-3.5" />
-                <span>{lang === 'ar' ? 'الصيانة الدورية' : 'Entretien Préventif'}</span>
-                {(overdueTasks.length > 0 || soonTasks.length > 0) && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300 font-bold">
-                    {overdueTasks.length + soonTasks.length}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {canManage && subTab === 'curative' && (
+          {canManage && (
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setIsNewModalOpen(true)}
                 className="flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
@@ -214,63 +147,49 @@ export const MaintenancePage: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 <span>{lang === 'ar' ? 'إبلاغ عن عطل' : 'Signaler une panne'}</span>
               </button>
-            )}
-
-            {canManage && subTab === 'preventive' && (
-              <button
-                onClick={() => setIsNewPrevModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{lang === 'ar' ? 'إضافة مهمة دورية' : 'Planifier tâche'}</span>
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* Filters on Curative */}
-        {subTab === 'curative' && (
-          <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
-            <div className="inline-flex rounded-lg bg-slate-100 dark:bg-slate-800 p-1">
-              {[
-                { key: 'all', label: lang === 'ar' ? 'الكل' : 'Tous' },
-                { key: 'open', label: `${lang === 'ar' ? 'قيد المعالجة' : 'Ouverts'} (${openIncidentsCount})` },
-                { key: 'resolu', label: lang === 'ar' ? 'تم حلها' : 'Résolus' },
-              ].map((st) => (
-                <button
-                  key={st.key}
-                  onClick={() => setFilterStatus(st.key)}
-                  className={`px-3 py-1 rounded-md font-medium cursor-pointer ${
-                    filterStatus === st.key
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 dark:text-slate-400'
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="inline-flex rounded-lg bg-slate-100 dark:bg-slate-800 p-1">
+            {[
+              { key: 'all', label: lang === 'ar' ? 'الكل' : 'Tous' },
+              { key: 'open', label: `${lang === 'ar' ? 'قيد المعالجة' : 'Ouverts'} (${openIncidentsCount})` },
+              { key: 'resolu', label: lang === 'ar' ? 'تم حلها' : 'Résolus' },
+            ].map((st) => (
+              <button
+                key={st.key}
+                onClick={() => setFilterStatus(st.key)}
+                className={`px-3 py-1 rounded-md font-medium cursor-pointer ${filterStatus === st.key
+                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-500 dark:text-slate-400'
                   }`}
-                >
-                  {st.label}
-                </button>
-              ))}
-            </div>
-
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
-            >
-              <option value="all">{lang === 'ar' ? 'كل التجهيزات' : 'Tous les équipements'}</option>
-              <option value="ascenseur">{lang === 'ar' ? 'المصاعد' : 'Ascenseurs'}</option>
-              <option value="surpresseur_eau">{lang === 'ar' ? 'خزان المياه ومجموعة الضغط' : 'Bâche à eau & Surpresseur'}</option>
-              <option value="electricite_eclairage">{lang === 'ar' ? 'الكهرباء والإنارة' : 'Électricité & Éclairage'}</option>
-              <option value="porte_interphone">{lang === 'ar' ? 'باب المدخل والإنترفون' : 'Porte & Interphone'}</option>
-              <option value="plomberie_evacuation">{lang === 'ar' ? 'السباكة والسطح' : 'Plomberie & Toiture'}</option>
-              <option value="securite_gardiennage">{lang === 'ar' ? 'الأمن والحماية' : 'Sécurité & Incendie'}</option>
-            </select>
+              >
+                {st.label}
+              </button>
+            ))}
           </div>
-        )}
+
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+          >
+            <option value="all">{lang === 'ar' ? 'كل التجهيزات' : 'Tous les équipements'}</option>
+            <option value="ascenseur">{lang === 'ar' ? 'المصاعد' : 'Ascenseurs'}</option>
+            <option value="surpresseur_eau">{lang === 'ar' ? 'خزان المياه ومجموعة الضغط' : 'Bâche à eau & Surpresseur'}</option>
+            <option value="electricite_eclairage">{lang === 'ar' ? 'الكهرباء والإنارة' : 'Électricité & Éclairage'}</option>
+            <option value="porte_interphone">{lang === 'ar' ? 'باب المدخل والإنترفون' : 'Porte & Interphone'}</option>
+            <option value="plomberie_evacuation">{lang === 'ar' ? 'السباكة والسطح' : 'Plomberie & Toiture'}</option>
+            <option value="securite_gardiennage">{lang === 'ar' ? 'الأمن والحماية' : 'Sécurité & Incendie'}</option>
+          </select>
+        </div>
       </div>
 
-      {/* CURATIVE LIST */}
-      {subTab === 'curative' && (
-        filteredIncidents.length === 0 ? (
+      {/* INCIDENTS LIST */}
+      {filteredIncidents.length === 0 ? (
           <EmptyState
             icon={<CheckCircle2 className="w-7 h-7" />}
             title={lang === 'ar' ? 'لا توجد أعطال في هذا الفلتر' : 'Aucun incident trouvé'}
@@ -300,11 +219,10 @@ export const MaintenancePage: React.FC = () => {
               return (
                 <div
                   key={inc.id}
-                  className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs space-y-3 ${
-                    inc.priority === 'urgente' && !isResolved
-                      ? 'border-rose-300 dark:border-rose-800/80'
-                      : 'border-slate-200 dark:border-slate-800'
-                  }`}
+                  className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs space-y-3 ${inc.priority === 'urgente' && !isResolved
+                    ? 'border-rose-300 dark:border-rose-800/80'
+                    : 'border-slate-200 dark:border-slate-800'
+                    }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                     <div className="space-y-1">
@@ -367,11 +285,10 @@ export const MaintenancePage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setChatIncident(inc)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer border transition-colors ${
-                          awaitingReply
-                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs'
-                            : 'bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
-                        }`}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer border transition-colors ${awaitingReply
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs'
+                          : 'bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                          }`}
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
                         <span>
@@ -380,8 +297,8 @@ export const MaintenancePage: React.FC = () => {
                               ? `رد على الساكن (${messages.length})`
                               : `Répondre (${messages.length})`
                             : lang === 'ar'
-                            ? `محادثة (${messages.length})`
-                            : `Chat (${messages.length})`}
+                              ? `محادثة (${messages.length})`
+                              : `Chat (${messages.length})`}
                         </span>
                         {awaitingReply && <span className="w-2 h-2 rounded-full bg-amber-300 animate-pulse" />}
                       </button>
@@ -458,11 +375,10 @@ export const MaintenancePage: React.FC = () => {
                           {quotes.map((qt) => (
                             <div
                               key={qt.id}
-                              className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between gap-1.5 ${
-                                qt.selected
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700'
-                                  : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
-                              }`}
+                              className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between gap-1.5 ${qt.selected
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700'
+                                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                                }`}
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div>
@@ -529,129 +445,7 @@ export const MaintenancePage: React.FC = () => {
               );
             })}
           </div>
-        )
-      )}
-
-      {/* PREVENTIVE CALENDAR */}
-      {subTab === 'preventive' && (
-        preventiveTasks.length === 0 ? (
-          <EmptyState
-            icon={<CalendarClock className="w-7 h-7" />}
-            title={lang === 'ar' ? 'لا توجد مهام صيانة دورية مسجلة' : 'Aucune tâche préventive planifiée'}
-            description={
-              lang === 'ar'
-                ? 'أضف جدول فحص المصاعد وخزان المياه ومطفآت الحريق.'
-                : 'Planifiez les contrôles périodiques des ascenseurs, de la bâche à eau et des extincteurs.'
-            }
-          />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {preventiveTasks.map((task) => {
-              const dueStatus = getDueStatus(task.nextDueDate);
-              return (
-                <div
-                  key={task.id}
-                  className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs space-y-3 ${
-                    dueStatus === 'overdue'
-                      ? 'border-rose-300 dark:border-rose-800'
-                      : dueStatus === 'soon'
-                      ? 'border-amber-300 dark:border-amber-800'
-                      : 'border-slate-200 dark:border-slate-800'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        {getCategoryIcon(task.equipment)}
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                          {task.title}
-                        </h3>
-                      </div>
-                      <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
-                        <span>{getCategoryLabel(task.equipment)}</span>
-                        <span>•</span>
-                        <span>{getFrequencyLabel(task.frequency)}</span>
-                        {task.assignedVendor && (
-                          <>
-                            <span>•</span>
-                            <span>{task.assignedVendor}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <span
-                      className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
-                        dueStatus === 'overdue'
-                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300'
-                          : dueStatus === 'soon'
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
-                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
-                      }`}
-                    >
-                      {dueStatus === 'overdue'
-                        ? lang === 'ar'
-                          ? 'متأخر'
-                          : 'En retard'
-                        : dueStatus === 'soon'
-                        ? lang === 'ar'
-                          ? 'قريباً'
-                          : 'À prévoir'
-                        : lang === 'ar'
-                        ? 'في الوقت'
-                        : 'À jour'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 text-xs">
-                    <div>
-                      <span className="text-slate-400 block text-[11px]">
-                        {lang === 'ar' ? 'آخر تنفيذ' : 'Dernière exécution'}
-                      </span>
-                      <strong className="font-mono text-slate-800 dark:text-slate-200">
-                        {formatShortDate(task.lastDoneDate, lang)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[11px]">
-                        {lang === 'ar' ? 'الموعد القادم' : 'Prochaine échéance'}
-                      </span>
-                      <strong className="font-mono text-slate-900 dark:text-white">
-                        {formatShortDate(task.nextDueDate, lang)}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {task.notes && <p className="text-xs text-slate-600 dark:text-slate-300">{task.notes}</p>}
-
-                  {(task.history || []).length > 0 && (
-                    <div className="text-[11px] text-slate-500 pt-1">
-                      {lang === 'ar' ? 'السجل:' : 'Historique :'} {(task.history || []).length}{' '}
-                      {lang === 'ar' ? 'عملية مسجلة' : 'intervention(s)'}
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                      {task.estimatedCostDZD ? formatDZD(task.estimatedCostDZD, lang) : '—'}
-                    </span>
-
-                    {canManage && (
-                      <button
-                        onClick={() => setCompletingTask(task)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{lang === 'ar' ? 'تنفيذ الآن' : 'Exécuter'}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )
-      )}
+        )}
 
       {/* Modals */}
       {isNewModalOpen && (
@@ -681,14 +475,6 @@ export const MaintenancePage: React.FC = () => {
         />
       )}
 
-      {isNewPrevModalOpen && (
-        <NewPreventiveModal
-          vendors={data.vendors}
-          onClose={() => setIsNewPrevModalOpen(false)}
-          onSubmit={addPreventiveTask}
-        />
-      )}
-
       <IncidentChatDrawer
         incident={chatIncident}
         apartments={data.apartments}
@@ -696,15 +482,6 @@ export const MaintenancePage: React.FC = () => {
         syndicPhone={data.building.syndicPhone}
         onClose={() => setChatIncident(null)}
       />
-
-      {completingTask && (
-        <CompletePreventiveModal
-          task={completingTask}
-          defaultPerformer={data.building.committee?.technicalLead || data.building.syndicPresident}
-          onClose={() => setCompletingTask(null)}
-          onSubmit={(date, by, cost, notes) => completePreventiveTask(completingTask.id, date, by, cost, notes)}
-        />
-      )}
     </div>
   );
 };
