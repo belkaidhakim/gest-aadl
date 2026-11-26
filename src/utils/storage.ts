@@ -1,5 +1,6 @@
 import { AppData } from '../types';
 import { initialAppData } from '../data/mockData';
+import { generateDefaultPinForApt } from './helpers';
 
 const STORAGE_KEY = 'gest_aadl_app_state_v6';
 
@@ -22,9 +23,13 @@ export function normalizeAppData(parsed: Partial<AppData> | null | undefined): A
 
   return {
     building,
-    apartments: Array.isArray(parsed.apartments) && parsed.apartments.length > 0
+    apartments: (Array.isArray(parsed.apartments) && parsed.apartments.length > 0
       ? parsed.apartments
-      : initialAppData.apartments,
+      : initialAppData.apartments
+    ).map((apt, idx) => ({
+      ...apt,
+      residentPin: apt.residentPin || generateDefaultPinForApt(apt.id, idx),
+    })),
     payments: Array.isArray(parsed.payments) ? parsed.payments : initialAppData.payments,
     incidents: Array.isArray(parsed.incidents) ? parsed.incidents : initialAppData.incidents,
     transactions: Array.isArray(parsed.transactions) ? parsed.transactions : initialAppData.transactions,
@@ -41,6 +46,12 @@ export function normalizeAppData(parsed: Partial<AppData> | null | undefined): A
     houseRules: Array.isArray(parsed.houseRules) && parsed.houseRules.length > 0
       ? parsed.houseRules
       : initialAppData.houseRules,
+    paymentDeclarations: Array.isArray(parsed.paymentDeclarations)
+      ? parsed.paymentDeclarations
+      : [],
+    specialCalls: Array.isArray(parsed.specialCalls)
+      ? parsed.specialCalls
+      : [],
   };
 }
 

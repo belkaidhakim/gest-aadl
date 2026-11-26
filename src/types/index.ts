@@ -101,6 +101,7 @@ export interface Apartment {
   resident: Resident;
   tenant?: TenantInfo;
   notes?: string;
+  residentPin?: string; // 4-digit PIN (masked on public resident state)
 }
 
 export interface PaymentRecord {
@@ -132,6 +133,7 @@ export interface IncidentMessage {
   senderName: string;
   apartmentNumber?: string;
   text: string;
+  photoUrl?: string;
   timestamp: string;
   editedAt?: string;
 }
@@ -145,6 +147,7 @@ export interface Incident {
   priority: IncidentPriority;
   status: IncidentStatus;
   description: string;
+  photoUrl?: string;
   reportedBy: string;
   reportedDate: string;
   assignedVendor?: string;
@@ -290,6 +293,48 @@ export interface BuildingInfo {
   committee?: SyndicCommittee;
 }
 
+export interface PaymentDeclaration {
+  id: string;
+  apartmentId: string;
+  apartmentNumber: string;
+  residentName?: string;
+  month: string;
+  specialCallId?: string;
+  specialCallTitle?: string;
+  amountDZD: number;
+  paymentMethod: PaymentMethod;
+  reference?: string;
+  proofDataUrl?: string;
+  notes?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  submittedAt: string;
+}
+
+export interface SpecialCallContribution {
+  id: string;
+  receiptNumber: string;
+  apartmentId: string;
+  apartmentNumber: string;
+  residentName: string;
+  amountDZD: number;
+  paymentDate: string;
+  paymentMethod: PaymentMethod;
+  collectedBy: string;
+  notes?: string;
+}
+
+export interface SpecialCall {
+  id: string;
+  title: string;
+  description?: string;
+  amountPerApartmentDZD: number;
+  dueDate: string;
+  fund: TransactionFund;
+  status: 'active' | 'closed';
+  createdAt: string;
+  contributions: SpecialCallContribution[];
+}
+
 export interface AppData {
   building: BuildingInfo;
   apartments: Apartment[];
@@ -303,4 +348,6 @@ export interface AppData {
   preventiveTasks: PreventiveTask[];
   assemblyMinutes: AssemblyMinutes[];
   houseRules: HouseRuleSection[];
+  paymentDeclarations?: PaymentDeclaration[];
+  specialCalls?: SpecialCall[];
 }

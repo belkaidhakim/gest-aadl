@@ -14,6 +14,16 @@ import {
   updateIncident,
   updateIncidentMessage,
   addNotice,
+  deleteAssemblyMinutes,
+  deleteNotice,
+  deleteVendor,
+  deleteVote,
+  getBuildingExtras,
+  saveBuildingExtras,
+  updateAssemblyMinutes,
+  updateNotice,
+  updateVendor,
+  updateVote,
   addPreventiveTask,
   addTransaction,
   updateTransaction,
@@ -182,6 +192,7 @@ function sanitizeDataForResident(data) {
     },
     apartments: (data.apartments || []).map((apt) => ({
       ...apt,
+      residentPin: undefined,
       resident: {
         ...apt.resident,
         birthDate: undefined,
@@ -199,6 +210,14 @@ function sanitizeDataForResident(data) {
             startDate: apt.tenant.startDate,
           }
         : undefined,
+    })),
+    paymentDeclarations: [],
+    specialCalls: (data.specialCalls || []).map((sc) => ({
+      ...sc,
+      contributions: (sc.contributions || []).map((c) => ({
+        ...c,
+        residentName: 'Copropriétaire',
+      })),
     })),
   };
 }
@@ -821,11 +840,55 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 201, { ok: true, notice });
       }
 
+      const noticeItemMatch = urlPath.match(/^\/api\/notices\/([^/]+)$/);
+      if (noticeItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const body = await readJsonBody(req);
+        const updated = updateNotice(buildingId, decodeURIComponent(noticeItemMatch[1]), body.notice || {}, actor);
+        return sendJson(res, updated ? 200 : 404, { ok: Boolean(updated), notice: updated });
+      }
+      if (noticeItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const ok = deleteNotice(buildingId, decodeURIComponent(noticeItemMatch[1]), actor);
+        return sendJson(res, ok ? 200 : 404, { ok });
+      }
+
       if (urlPath === '/api/votes' && method === 'POST') {
         if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
         const body = await readJsonBody(req);
         const vote = addVote(buildingId, body.vote, actor);
         return sendJson(res, 201, { ok: true, vote });
+      }
+
+      const voteItemMatch = urlPath.match(/^\/api\/votes\/([^/]+)$/);
+      if (voteItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const body = await readJsonBody(req);
+        const updated = updateVote(buildingId, decodeURIComponent(voteItemMatch[1]), body.vote || {}, actor);
+        return sendJson(res, updated ? 200 : 404, { ok: Boolean(updated), vote: updated });
+      }
+      if (voteItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const ok = deleteVote(buildingId, decodeURIComponent(voteItemMatch[1]), actor);
+        return sendJson(res, ok ? 200 : 404, { ok });
+      }
+
+      const voteResidentCastMatch = urlPath.match(/^\/api\/votes\/([^/]+)\/resident-cast$/);
+      if (voteResidentCastMatch && method === 'POST') {
+        const voteId = decodeURIComponent(voteResidentCastMatch[1]);
+        const body = await readJsonBody(req);
+        const state = getBuildingState(buildingId);
+        const apt = (state?.apartments || []).find((a) => a.id === body.apartmentId);
+        if (!apt || apt.occupancy === 'vacant') return sendJson(res, 400, { error: 'Logement non éligible.' });
+        if (String(body.pin || '').trim() !== String(apt.residentPin || '').trim()) {
+          return sendJson(res, 401, { error: 'Code PIN du logement incorrect.' });
+        }
+        const result = castVote(buildingId, voteId, body.optionId, apt.id, {
+          fullName: `${apt.number} (${apt.resident.name})`,
+          role: 'resident',
+        });
+        if (result.error) return sendJson(res, 400, { error: result.error });
+        return sendJson(res, 200, { ok: true, vote: result.vote });
       }
 
       const voteToggleMatch = urlPath.match(/^\/api\/votes\/([^/]+)\/toggle$/);
@@ -853,6 +916,19 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 201, { ok: true, minutes });
       }
 
+      const minutesItemMatch = urlPath.match(/^\/api\/minutes\/([^/]+)$/);
+      if (minutesItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const body = await readJsonBody(req);
+        const updated = updateAssemblyMinutes(buildingId, decodeURIComponent(minutesItemMatch[1]), body.minutes || {}, actor);
+        return sendJson(res, updated ? 200 : 404, { ok: Boolean(updated), minutes: updated });
+      }
+      if (minutesItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const ok = deleteAssemblyMinutes(buildingId, decodeURIComponent(minutesItemMatch[1]), actor);
+        return sendJson(res, ok ? 200 : 404, { ok });
+      }
+
       if (urlPath === '/api/rules' && method === 'PUT') {
         if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
         const body = await readJsonBody(req);
@@ -866,6 +942,55 @@ const server = http.createServer(async (req, res) => {
         const body = await readJsonBody(req);
         const vendor = addVendor(buildingId, body.vendor, actor);
         return sendJson(res, 201, { ok: true, vendor });
+      }
+
+      const vendorItemMatch = urlPath.match(/^\/api\/vendors\/([^/]+)$/);
+      if (vendorItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const body = await readJsonBody(req);
+        const updated = updateVendor(buildingId, decodeURIComponent(vendorItemMatch[1]), body.vendor || {}, actor);
+        return sendJson(res, updated ? 200 : 404, { ok: Boolean(updated), vendor: updated });
+      }
+      if (vendorItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const ok = deleteVendor(buildingId, decodeURIComponent(vendorItemMatch[1]), actor);
+        return sendJson(res, ok ? 200 : 404, { ok });
+      }
+
+      if (urlPath === '/api/resident/my-apartment' && method === 'POST') {
+        const body = await readJsonBody(req);
+        const state = getBuildingState(buildingId);
+        const apt = (state?.apartments || []).find((a) => a.id === body.apartmentId);
+        if (!apt) return sendJson(res, 404, { error: 'Logement introuvable.' });
+        if (String(body.pin || '').trim() !== String(apt.residentPin || '').trim()) {
+          return sendJson(res, 401, { error: 'Code PIN incorrect.' });
+        }
+        const myPayments = (state.payments || []).filter((p) => p.apartmentId === apt.id);
+        const mySpecialCalls = (state.specialCalls || []).map((sc) => {
+          const myContribs = (sc.contributions || []).filter((c) => c.apartmentId === apt.id);
+          return {
+            id: sc.id,
+            title: sc.title,
+            amountPerApartmentDZD: sc.amountPerApartmentDZD,
+            dueDate: sc.dueDate,
+            paidDZD: myContribs.reduce((s, c) => s + c.amountDZD, 0),
+            contributions: myContribs,
+          };
+        });
+        return sendJson(res, 200, {
+          ok: true,
+          apartment: {
+            id: apt.id,
+            number: apt.number,
+            floor: apt.floor,
+            type: apt.type,
+            occupancy: apt.occupancy,
+            residentName: apt.resident.name,
+          },
+          payments: myPayments,
+          specialCalls: mySpecialCalls,
+          pendingDeclarations: [],
+        });
       }
 
       // Audit Logs (Bureau only)

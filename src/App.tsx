@@ -11,6 +11,7 @@ import { CommandPalette } from './app/CommandPalette';
 import { AuthModal } from './components/AuthModal';
 import { RecordPaymentModal } from './features/fees/RecordPaymentModal';
 import { ReceiptModal } from './features/fees/ReceiptModal';
+import { QuitusModal } from './features/fees/QuitusModal';
 import { NoticePrintModal } from './features/governance/NoticePrintModal';
 import { canManageFinance, canManageSettings } from './utils/permissions';
 
@@ -99,6 +100,7 @@ const AppShell: React.FC = () => {
   const [payDefaultApt, setPayDefaultApt] = useState<Apartment | null>(null);
   const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
   const [receiptPayment, setReceiptPayment] = useState<PaymentRecord | null>(null);
+  const [quitusApt, setQuitusApt] = useState<Apartment | null>(null);
   const [printNotice, setPrintNotice] = useState<Notice | null>(null);
   const [printUnpaid, setPrintUnpaid] = useState<{ month: string; unpaidApts: Apartment[] } | null>(null);
   const [printMinutes, setPrintMinutes] = useState<AssemblyMinutes | null>(null);
@@ -194,7 +196,12 @@ const AppShell: React.FC = () => {
         case 'directory':
           return <ResidentEmergenciesPage />;
         default:
-          return <ResidentEssentialPage onNavigateTab={(tab) => navigate(tab, 'resident')} />;
+          return (
+            <ResidentEssentialPage
+              onNavigateTab={(tab) => navigate(tab, 'resident')}
+              onViewReceipt={(p) => setReceiptPayment(p)}
+            />
+          );
       }
     }
 
@@ -212,6 +219,7 @@ const AppShell: React.FC = () => {
           <BuildingMatrixPage
             onRecordPaymentForApt={(apt) => handleOpenNewPayment(apt)}
             onViewReceipt={(p) => setReceiptPayment(p)}
+            onOpenQuitus={(apt) => setQuitusApt(apt)}
           />
         );
       case 'fees':
@@ -221,6 +229,7 @@ const AppShell: React.FC = () => {
             onEditPayment={handleOpenEditPayment}
             onDeletePayment={handleDeletePayment}
             onViewReceipt={(p) => setReceiptPayment(p)}
+            onOpenQuitus={(apt) => setQuitusApt(apt)}
             onPrintUnpaidNotice={(month, unpaidApts) => setPrintUnpaid({ month, unpaidApts })}
           />
         );
@@ -323,9 +332,18 @@ const AppShell: React.FC = () => {
       <ReceiptModal
         payment={receiptPayment}
         building={data.building}
+        apartments={data.apartments}
+        allPayments={data.payments}
         onEdit={canManageFinance(role) ? handleOpenEditPayment : undefined}
         onDelete={canManageFinance(role) ? handleDeletePayment : undefined}
         onClose={() => setReceiptPayment(null)}
+      />
+
+      <QuitusModal
+        apartment={quitusApt}
+        building={data.building}
+        payments={data.payments}
+        onClose={() => setQuitusApt(null)}
       />
 
       <NoticePrintModal

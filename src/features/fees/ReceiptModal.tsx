@@ -1,12 +1,22 @@
 import React from 'react';
-import { Printer, Pencil, Trash2, X, CheckCircle2 } from 'lucide-react';
-import { BuildingInfo, PaymentRecord } from '../../types';
-import { formatDZD, formatDateFr, formatMonthName, numberToFrenchWords } from '../../utils/helpers';
+import { Printer, Pencil, Trash2, X, CheckCircle2, Share2 } from 'lucide-react';
+import { Apartment, BuildingInfo, PaymentRecord } from '../../types';
+import {
+  buildWhatsAppUrl,
+  formatDZD,
+  formatDateFr,
+  formatMonthName,
+  generateReceiptWhatsAppText,
+  numberToFrenchWords,
+} from '../../utils/helpers';
 import { useI18n } from '../../i18n';
+import { useToast } from '../../components/ui/ToastProvider';
 
 interface ReceiptModalProps {
   payment: PaymentRecord | null;
   building: BuildingInfo;
+  apartments?: Apartment[];
+  allPayments?: PaymentRecord[];
   onEdit?: (payment: PaymentRecord) => void;
   onDelete?: (payment: PaymentRecord) => void;
   onClose: () => void;
@@ -15,15 +25,34 @@ interface ReceiptModalProps {
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   payment,
   building,
+  apartments,
+  allPayments,
   onEdit,
   onDelete,
   onClose,
 }) => {
   const { lang, t } = useI18n();
+  const toast = useToast();
   if (!payment) return null;
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleShareWhatsApp = () => {
+    const apt = apartments?.find((a) => a.id === payment.apartmentId);
+    const paidForPeriod = (allPayments || [payment])
+      .filter((p) => p.apartmentId === payment.apartmentId && p.month === payment.month)
+      .reduce((sum, p) => sum + p.amountDZD, 0);
+    const remaining = Math.max(0, building.standardMonthlyFeeDZD - paidForPeriod);
+    const text = generateReceiptWhatsAppText(payment, building, remaining, lang);
+    navigator.clipboard.writeText(text).catch(() => {});
+    const directUrl = buildWhatsAppUrl(apt?.resident.phone, text);
+    const targetUrl = directUrl || `https://wa.me/?text=${encodeURIComponent(text)}`;
+    toast.success(
+      lang === 'ar' ? 'تم تجهيز وصل الدفع عبر واتساب' : 'Quittance copiée et prête pour WhatsApp'
+    );
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
   const includedItems =
@@ -71,6 +100,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 <span>{lang === 'ar' ? 'حذف' : 'Supprimer'}</span>
               </button>
             )}
+            <button
+              onClick={handleShareWhatsApp}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 rounded-lg border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>WhatsApp</span>
+            </button>
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm cursor-pointer"

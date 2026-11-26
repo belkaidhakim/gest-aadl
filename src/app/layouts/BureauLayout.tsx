@@ -25,11 +25,13 @@ import {
   Cloud,
   HardDrive,
   MessageSquare,
+  CreditCard,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/AppStore';
 import { useI18n } from '../../i18n';
 import { canManageFinance, canManageSettings } from '../../utils/permissions';
 import { AppTab } from '../useRoute';
+import { PwaInstallButton } from '../../components/PwaInstallButton';
 
 interface BureauLayoutProps {
   currentTab: AppTab;
@@ -74,7 +76,9 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
       i.messages.length > 0 &&
       i.messages[i.messages.length - 1].senderRole === 'resident'
   );
-  const totalAlerts = urgentIncidents.length + awaitingChatIncidents.length;
+  const pendingDeclarations = (data.paymentDeclarations || []).filter((d) => d.status === 'pending');
+  const incidentAlerts = urgentIncidents.length + awaitingChatIncidents.length;
+  const totalAlerts = incidentAlerts + pendingDeclarations.length;
 
   const roleBadgeLabel =
     role === 'president'
@@ -97,7 +101,12 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
     {
       title: t('navGroupFinance'),
       items: [
-        { id: 'fees', label: t('tabFees'), icon: <Receipt className="w-4 h-4" /> },
+        {
+          id: 'fees',
+          label: t('tabFees'),
+          icon: <Receipt className="w-4 h-4" />,
+          badge: pendingDeclarations.length > 0 ? pendingDeclarations.length : undefined,
+        },
         { id: 'treasury', label: t('tabTreasury'), icon: <Wallet className="w-4 h-4" /> },
         { id: 'audit', label: t('tabAudit'), icon: <ClipboardList className="w-4 h-4" /> },
       ],
@@ -109,7 +118,7 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
           id: 'incidents',
           label: t('tabIncidents'),
           icon: <Wrench className="w-4 h-4" />,
-          badge: totalAlerts > 0 ? totalAlerts : undefined,
+          badge: incidentAlerts > 0 ? incidentAlerts : undefined,
         },
         { id: 'directory', label: t('tabDirectory'), icon: <Phone className="w-4 h-4" /> },
       ],
@@ -315,6 +324,7 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <PwaInstallButton />
             {/* Search Ctrl+K Trigger */}
             <button
               onClick={onOpenSearch}
@@ -351,6 +361,26 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
                     <p className="text-slate-500 py-2">{t('noAlertsText')}</p>
                   ) : (
                     <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                      {pendingDeclarations.map((decl) => (
+                        <button
+                          key={`decl-${decl.id}`}
+                          onClick={() => {
+                            onNavigate('fees');
+                            setAlertsOpen(false);
+                          }}
+                          className="w-full text-start p-2 rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-900 dark:text-sky-200 hover:bg-sky-100 cursor-pointer"
+                        >
+                          <div className="font-bold truncate flex items-center gap-1">
+                            <CreditCard className="w-3 h-3 shrink-0" />
+                            <span className="truncate">
+                              {decl.paymentMethod} — {decl.apartmentNumber}
+                            </span>
+                          </div>
+                          <div className="text-[10px] opacity-85 truncate">
+                            {decl.residentName} · {decl.amountDZD} DZD à valider
+                          </div>
+                        </button>
+                      ))}
                       {awaitingChatIncidents.map((inc) => {
                         const last = inc.messages![inc.messages!.length - 1];
                         return (

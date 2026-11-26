@@ -22,6 +22,11 @@ import {
   Sparkles,
   BookOpen,
   RotateCcw,
+  CalendarCheck,
+  Zap,
+  Layers,
+  Droplet,
+  X,
 } from 'lucide-react';
 import {
   BudgetAllocation,
@@ -71,8 +76,11 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
 
   // Modals & Drawers
   const [isNewTxModalOpen, setIsNewTxModalOpen] = useState(false);
+  const [txPreset, setTxPreset] = useState<Partial<Transaction> | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
+  const [isCloseExerciseOpen, setIsCloseExerciseOpen] = useState(false);
+  const [closeYear, setCloseYear] = useState<string>(String(new Date().getFullYear()));
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
@@ -468,6 +476,17 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
               <>
                 <button
                   type="button"
+                  onClick={() => {
+                    setCloseYear(yearFilter !== 'all' ? yearFilter : String(new Date().getFullYear()));
+                    setIsCloseExerciseOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 border border-amber-200 dark:border-amber-800 rounded-xl cursor-pointer"
+                >
+                  <CalendarCheck className="w-3.5 h-3.5" />
+                  <span>{lang === 'ar' ? 'إغلاق وترحيل السنة' : 'Clôturer Exercice'}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setIsTransferOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 border border-sky-200 dark:border-sky-800 rounded-xl cursor-pointer"
                 >
@@ -476,7 +495,10 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsNewTxModalOpen(true)}
+                  onClick={() => {
+                    setTxPreset(null);
+                    setIsNewTxModalOpen(true);
+                  }}
                   className="flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
@@ -675,6 +697,83 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
               />
             </div>
           </div>
+
+          {/* 1-Click Recurring Expenses Strip */}
+          {canEdit && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-2 text-xs">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {lang === 'ar' ? 'تسجيل المصاريف الثابتة بنقرة واحدة :' : 'Charges fixes récurrentes en 1 clic :'}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {[
+                  {
+                    label: lang === 'ar' ? 'عون النظافة' : 'Ménage mensuel',
+                    icon: <Sparkles className="w-3.5 h-3.5 text-emerald-600" />,
+                    preset: {
+                      type: 'depense' as const,
+                      fund: 'courant' as const,
+                      category: 'Agent de Ménage & Entretien' as const,
+                      amountDZD: 10000,
+                      description: `Agent d'entretien & nettoyage paliers (${new Date().toISOString().slice(0, 7)})`,
+                      paymentMethod: 'Espèces' as const,
+                    },
+                  },
+                  {
+                    label: lang === 'ar' ? 'فاتورة سونلغاز' : 'Facture Sonelgaz',
+                    icon: <Zap className="w-3.5 h-3.5 text-amber-500" />,
+                    preset: {
+                      type: 'depense' as const,
+                      fund: 'courant' as const,
+                      category: 'Facture Électricité Sonelgaz' as const,
+                      amountDZD: 12000,
+                      description: 'Facture Sonelgaz — Éclairage parties communes & surpresseur',
+                      paymentMethod: 'Espèces' as const,
+                    },
+                  },
+                  {
+                    label: lang === 'ar' ? 'عقد المصاعد' : 'Contrat Ascenseurs',
+                    icon: <Layers className="w-3.5 h-3.5 text-sky-600" />,
+                    preset: {
+                      type: 'depense' as const,
+                      fund: 'courant' as const,
+                      category: 'Maintenance Ascenseurs' as const,
+                      amountDZD: 12000,
+                      description: `Redevance contrat maintenance des 2 ascenseurs (${new Date().toISOString().slice(0, 7)})`,
+                      paymentMethod: 'Espèces' as const,
+                    },
+                  },
+                  {
+                    label: lang === 'ar' ? 'خزان المياه والمضخة' : 'Bâche à eau / Pompe',
+                    icon: <Droplet className="w-3.5 h-3.5 text-cyan-600" />,
+                    preset: {
+                      type: 'depense' as const,
+                      fund: 'courant' as const,
+                      category: 'Réparation Bâche à Eau / Surpresseur' as const,
+                      amountDZD: 8000,
+                      description: 'Entretien / fournitures groupe surpresseur & bâche à eau',
+                      paymentMethod: 'Espèces' as const,
+                    },
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      setTxPreset(item.preset);
+                      setIsNewTxModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 font-semibold text-slate-700 dark:text-slate-200 cursor-pointer transition-colors"
+                  >
+                    {item.icon}
+                    <span>+ {item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Direct Expense Management List on Overview */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
@@ -1534,10 +1633,123 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ onPrintFinancialRepo
         <TransactionModal
           courantBalance={courantBalance}
           reserveBalance={reserveBalance}
-          onClose={() => setIsNewTxModalOpen(false)}
+          initialPreset={txPreset}
+          onClose={() => {
+            setIsNewTxModalOpen(false);
+            setTxPreset(null);
+          }}
           onSubmit={addTransaction}
         />
       )}
+
+      {isCloseExerciseOpen && canEdit && (() => {
+        const yrTxs = data.transactions.filter(
+          (tx) => (tx.date || '').startsWith(closeYear) && !isInternalTransfer(tx)
+        );
+        const yrInc = yrTxs.filter((tx) => tx.type === 'recette').reduce((s, tx) => s + tx.amountDZD, 0);
+        const yrExp = yrTxs.filter((tx) => tx.type === 'depense').reduce((s, tx) => s + tx.amountDZD, 0);
+        const yrNet = yrInc - yrExp;
+        const nextYr = String(Number(closeYear) + 1);
+        const existingRan = data.transactions.find(
+          (tx) => tx.id === `tx-ran-${closeYear}` || tx.referenceDoc === `RAN-${closeYear}`
+        );
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 no-print">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <CalendarCheck className="w-5 h-5 text-amber-600" />
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {lang === 'ar' ? 'إغلاق وترحيل السنة المالية' : "Clôture & Report d'Exercice"}
+                  </h3>
+                </div>
+                <button onClick={() => setIsCloseExerciseOpen(false)} className="p-1 text-slate-400 cursor-pointer">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  {lang === 'ar' ? 'اختر السنة المالية المراد إغلاقها' : 'Exercice à clôturer'}
+                </label>
+                <select
+                  value={closeYear}
+                  onChange={(e) => setCloseYear(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+                >
+                  {availableYears.map((yr) => (
+                    <option key={yr} value={yr}>
+                      Exercice {yr} → Report sur {Number(yr) + 1}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Recettes {closeYear} :</span>
+                  <span className="font-mono font-bold text-emerald-600">+{formatDZD(yrInc, lang)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Dépenses & Reports {closeYear} :</span>
+                  <span className="font-mono font-bold text-rose-600">-{formatDZD(yrExp, lang)}</span>
+                </div>
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between text-sm font-bold">
+                  <span>Solde à reporter au 01/01/{nextYr} :</span>
+                  <span className={`font-mono ${yrNet >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {yrNet >= 0 ? '+' : ''}
+                    {formatDZD(yrNet, lang)}
+                  </span>
+                </div>
+              </div>
+
+              {existingRan && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
+                  Un report <strong>RAN-{closeYear}</strong> existe déjà : il sera mis à jour automatiquement sans créer de doublon.
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsCloseExerciseOpen(false)}
+                  className="px-4 py-2 text-slate-500 cursor-pointer"
+                >
+                  {t('cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={yrNet === 0}
+                  onClick={async () => {
+                    const ranTx: Transaction = {
+                      id: existingRan?.id || `tx-ran-${closeYear}`,
+                      date: `${nextYr}-01-01`,
+                      type: yrNet >= 0 ? 'recette' : 'depense',
+                      fund: 'courant',
+                      category: 'Report à Nouveau (Solde Antérieur)',
+                      amountDZD: Math.abs(yrNet),
+                      description: `Report à nouveau de l'exercice ${closeYear} (${yrNet >= 0 ? 'Excédent' : 'Solde débiteur'})`,
+                      referenceDoc: `RAN-${closeYear}`,
+                      paymentMethod: 'Autre',
+                    };
+                    if (existingRan) {
+                      await updateTransaction(ranTx);
+                    } else {
+                      await addTransaction(ranTx);
+                    }
+                    setYearFilter(nextYr);
+                    setIsCloseExerciseOpen(false);
+                  }}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold cursor-pointer"
+                >
+                  Reporter sur {nextYr}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {editingTx && canEdit && (
         <TransactionModal

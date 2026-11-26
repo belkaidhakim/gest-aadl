@@ -12,8 +12,10 @@ import {
   Upload,
   RotateCcw,
   KeyRound,
+  QrCode,
 } from 'lucide-react';
 import { AppData, BuildingInfo, BureauRole, ManagedUser } from '../../types';
+import { HallQrPosterModal } from '../../components/HallQrPosterModal';
 import { exportAppDataJSON } from '../../utils/storage';
 import {
   changeBureauPassword,
@@ -44,6 +46,7 @@ export const SettingsPage: React.FC = () => {
   } = useAppStore();
 
   const [subTab, setSubTab] = useState<'building' | 'rbac' | 'buildings' | 'backup'>('building');
+  const [isHallQrOpen, setIsHallQrOpen] = useState(false);
 
   const [form, setForm] = useState<BuildingInfo>(() => ({
     ...data.building,
@@ -260,7 +263,17 @@ export const SettingsPage: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsHallQrOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>{lang === 'ar' ? 'طباعة ملصق QR للبهو' : 'Affiche QR Hall A4'}</span>
+            </button>
+
+            <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
             {[
               { id: 'building' as const, icon: <Building2 className="w-3.5 h-3.5" />, label: lang === 'ar' ? 'العمارة واللجنة' : 'Bâtiment & Comité' },
               { id: 'rbac' as const, icon: <Users className="w-3.5 h-3.5" />, label: lang === 'ar' ? 'الحسابات والصلاحيات' : 'Comptes & Rôles RBAC' },
@@ -280,6 +293,7 @@ export const SettingsPage: React.FC = () => {
                 <span>{tab.label}</span>
               </button>
             ))}
+            </div>
           </div>
         </div>
       </div>
@@ -862,6 +876,9 @@ export const SettingsPage: React.FC = () => {
             </button>
           </div>
         </div>
+      )}
+      {isHallQrOpen && (
+        <HallQrPosterModal building={data.building} onClose={() => setIsHallQrOpen(false)} />
       )}
     </div>
   );

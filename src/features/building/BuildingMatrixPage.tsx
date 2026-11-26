@@ -11,9 +11,20 @@ import {
   Droplet,
   Copy,
   Clock,
+  KeyRound,
+  Award,
+  Share2,
 } from 'lucide-react';
 import { Apartment, PaymentRecord } from '../../types';
-import { formatDZD, formatMonthName, getCurrentMonthStr, generateFeeReminderText } from '../../utils/helpers';
+import {
+  buildWhatsAppUrl,
+  formatDZD,
+  formatMonthName,
+  generateDefaultPinForApt,
+  generateFeeReminderText,
+  getAvailableFeePeriods,
+  getCurrentMonthStr,
+} from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { canManageApartments, canManageFinance } from '../../utils/permissions';
@@ -23,11 +34,13 @@ import { useToast } from '../../components/ui/ToastProvider';
 interface BuildingMatrixPageProps {
   onRecordPaymentForApt: (apt: Apartment) => void;
   onViewReceipt: (payment: PaymentRecord) => void;
+  onOpenQuitus?: (apt: Apartment) => void;
 }
 
 export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
   onRecordPaymentForApt,
   onViewReceipt,
+  onOpenQuitus,
 }) => {
   const { lang, t } = useI18n();
   const { data, role, updateApartment } = useAppStore();
@@ -55,6 +68,7 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
     emergencyPhone: string;
     badgesCount: number;
     keysNotes: string;
+    residentPin: string;
   }>({
     name: '',
     birthDate: '',
@@ -67,7 +81,14 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
     emergencyPhone: '',
     badgesCount: 2,
     keysNotes: '',
+    residentPin: '',
   });
+
+  const availablePeriods = getAvailableFeePeriods(
+    data.building.feeFrequency || 'annuel',
+    data.payments,
+    data.transactions
+  );
 
   const paymentsForMonth = data.payments.filter((p) => p.month === selectedMonth);
   const paidAmountByAptId = new Map<string, number>();
@@ -113,6 +134,12 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
     return 'paid';
   };
 
+  const getAptPin = (apt: Apartment) => {
+    if (apt.residentPin) return apt.residentPin;
+    const idx = Math.max(0, data.apartments.findIndex((a) => a.id === apt.id));
+    return generateDefaultPinForApt(apt.id, idx);
+  };
+
   const handleOpenAptDetails = (apt: Apartment) => {
     setSelectedApt(apt);
     setEditForm({
@@ -127,6 +154,7 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
       emergencyPhone: apt.resident.emergencyContactPhone || '',
       badgesCount: apt.resident.badgesCount ?? 2,
       keysNotes: apt.resident.keysNotes || '',
+      residentPin: getAptPin(apt),
     });
     setIsEditingResident(false);
   };
@@ -134,9 +162,11 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedApt) return;
+    const cleanPin = editForm.residentPin.replace(/\D/g, '').slice(0, 4);
     const updated: Apartment = {
       ...selectedApt,
       occupancy: editForm.occupancy,
+      residentPin: cleanPin.length === 4 ? cleanPin : getAptPin(selectedApt),
       resident: {
         ...selectedApt.resident,
         name: editForm.name,
@@ -156,6 +186,26 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
     await updateApartment(updated);
     setSelectedApt(updated);
     setIsEditingResident(false);
+  };
+
+  const handleSendPinWhatsApp = (apt: Apartment) => {
+    const pin = getAptPin(apt);
+    const portalUrl = typeof window !== 'undefined' ? window.location.origin : 'https://gest-aadl.vercel.app';
+    const msg = [
+      `🔑 *ACCÈS ESPACE RÉSIDENT — ${data.building.buildingNumber}* (${data.building.residenceName})`,
+      `Bonjour ${apt.resident.name} (Porte *${apt.number}*),`,
+      '',
+      `Voici votre Code PIN confidentiel à 4 chiffres pour consulter vos quittances, déclarer un virement BaridiMob/CCP et voter en ligne :`,
+      `👉 Logement : *${apt.number}*`,
+      `👉 Code PIN : *${pin}*`,
+      `🌐 Lien de l'application : ${portalUrl}`,
+      '',
+      `Syndic ${data.building.syndicPresident}`,
+    ].join('\n');
+    navigator.clipboard.writeText(msg).catch(() => {});
+    const direct = buildWhatsAppUrl(apt.resident.phone, msg);
+    toast.success(`Code PIN ${pin} copié et prêt pour WhatsApp`);
+    window.open(direct || `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank', 'noopener,noreferrer');
   };
 
   const handleCopyReminder = (apt: Apartment) => {
@@ -219,11 +269,11 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             >
-              <option value="2026">{formatMonthName('2026', lang)}</option>
-              <option value="2025">{formatMonthName('2025', lang)}</option>
-              <option value="2024">{formatMonthName('2024', lang)}</option>
-              <option value="2026-11">{formatMonthName('2026-11', lang)}</option>
-              <option value="2026-10">{formatMonthName('2026-10', lang)}</option>
+              {availablePeriods.map((p) => (
+                <option key={p} value={p}>
+                  {formatMonthName(p, lang)}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -646,12 +696,54 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
                     <label className="block text-slate-600 dark:text-slate-300 mb-1">{t('emergencyPhoneLabel')}</label>
                     <input type="text" value={editForm.emergencyPhone} onChange={(e) => setEditForm({ ...editForm, emergencyPhone: e.target.value })} className="w-full px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono" />
                   </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-emerald-700 dark:text-emerald-300 font-semibold mb-1">
+                      {lang === 'ar' ? 'الرمز السري للساكن (4 أرقام — للتصويت وحساب الشقة)' : 'Code PIN Résident (4 chiffres — Espace Mon Logement & Vote)'}
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      pattern="\d{4}"
+                      value={editForm.residentPin}
+                      onChange={(e) => setEditForm({ ...editForm, residentPin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                      className="w-full px-2.5 py-1.5 rounded border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono font-bold tracking-widest"
+                    />
+                  </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <button type="button" onClick={() => setIsEditingResident(false)} className="px-3 py-1.5 text-xs text-slate-600 cursor-pointer">{t('cancel')}</button>
                   <button type="submit" className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md cursor-pointer">{t('save')}</button>
                 </div>
               </form>
+            )}
+
+            {canEditApt && (
+              <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-800/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-emerald-600" />
+                  <div>
+                    <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                      {lang === 'ar' ? 'رمز الدخول السري للساكن (PIN)' : 'Code PIN « Mon Logement & Vote »'}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      {lang === 'ar' ? 'خاص بهذه الشقة فقط' : 'Personnel à cet appartement'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 font-mono font-black text-sm tracking-widest text-emerald-700 dark:text-emerald-300">
+                    {getAptPin(selectedApt)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleSendPinWhatsApp(selectedApt)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold cursor-pointer"
+                  >
+                    <Share2 className="w-3 h-3" />
+                    <span>WhatsApp</span>
+                  </button>
+                </div>
+              </div>
             )}
 
             <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
@@ -721,13 +813,24 @@ export const BuildingMatrixPage: React.FC<BuildingMatrixPageProps> = ({
                       )}
 
                       {canCollect && (
-                        <button
-                          onClick={() => handleCopyReminder(selectedApt)}
-                          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>{t('copyWhatsappReminder')}</span>
-                        </button>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <button
+                            onClick={() => handleCopyReminder(selectedApt)}
+                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>{t('copyWhatsappReminder')}</span>
+                          </button>
+                          {onOpenQuitus && (
+                            <button
+                              onClick={() => onOpenQuitus(selectedApt)}
+                              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 rounded-xl border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+                            >
+                              <Award className="w-3.5 h-3.5" />
+                              <span>{lang === 'ar' ? 'شهادة براءة الذمة A4' : 'Quitus A4'}</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </>

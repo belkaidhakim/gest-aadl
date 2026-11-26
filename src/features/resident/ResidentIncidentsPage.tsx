@@ -353,6 +353,14 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                       </p>
                     )}
 
+                    {inc.photoUrl && (
+                      <img
+                        src={inc.photoUrl}
+                        alt={inc.title}
+                        className="h-28 w-full rounded-xl object-cover border border-slate-200 dark:border-slate-800"
+                      />
+                    )}
+
                     {/* 3-Step Visual Progress */}
                     <div className="grid grid-cols-3 gap-1.5 text-[10px] font-semibold">
                       <div className="space-y-1">
@@ -460,6 +468,14 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                       : 'Signalé'}
               </span>
             </div>
+
+            {selectedIncident.photoUrl && (
+              <img
+                src={selectedIncident.photoUrl}
+                alt={selectedIncident.title}
+                className="w-full max-h-56 rounded-xl object-cover border border-slate-200 dark:border-slate-700"
+              />
+            )}
 
             {selectedIncident.description && (
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">

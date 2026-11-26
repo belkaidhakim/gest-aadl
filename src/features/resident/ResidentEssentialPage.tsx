@@ -16,8 +16,10 @@ import {
   Siren,
   AlertTriangle,
   MessageSquare,
+  KeyRound,
+  CreditCard,
 } from 'lucide-react';
-import { Incident } from '../../types';
+import { Incident, PaymentRecord } from '../../types';
 import {
   formatDZD,
   formatDateFr,
@@ -31,16 +33,24 @@ import { AppTab } from '../../app/useRoute';
 import { isCarryOverTransaction } from '../treasury/treasuryHelpers';
 import { IncidentChatDrawer } from '../../components/IncidentChatDrawer';
 import { ReportIncidentModal } from './ReportIncidentModal';
+import { DeclarePaymentModal } from './DeclarePaymentModal';
+import { MyApartmentModal } from './MyApartmentModal';
 import residenceHeroImg from '../../assets/images/aadl_residence_complex_1794390110787.jpg';
 
 interface ResidentEssentialPageProps {
   onNavigateTab: (tab: AppTab) => void;
+  onViewReceipt?: (payment: PaymentRecord) => void;
 }
 
-export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ onNavigateTab }) => {
+export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({
+  onNavigateTab,
+  onViewReceipt,
+}) => {
   const { lang, isRtl, t } = useI18n();
   const { data, reportResidentIncident } = useAppStore();
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isMyAptOpen, setIsMyAptOpen] = useState(false);
+  const [declareAptId, setDeclareAptId] = useState<string | null>(null);
   const [chatIncident, setChatIncident] = useState<Incident | null>(null);
   const currentMonth = getCurrentMonthStr();
 
@@ -213,27 +223,29 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
               <AlertTriangle className="w-4 h-4" />
               <span>{lang === 'ar' ? 'الإبلاغ عن عطل' : 'Signaler une panne'}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setIsMyAptOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-sm transition-colors cursor-pointer"
+            >
+              <KeyRound className="w-4 h-4" />
+              <span>{lang === 'ar' ? 'شقتي (PIN)' : 'Mon Logement (PIN)'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeclareAptId('')}
+              className="flex items-center gap-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-sky-100 bg-sky-500/25 hover:bg-sky-500/35 border border-sky-400/40 rounded-xl transition-colors cursor-pointer"
+            >
+              <CreditCard className="w-4 h-4 text-sky-300" />
+              <span>{lang === 'ar' ? 'إرسال وصل بريدي موب' : 'Preuve BaridiMob / CCP'}</span>
+            </button>
             <a
               href={`tel:${data.building.syndicPhone}`}
-              className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-sm transition-colors"
+              className="flex items-center gap-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium text-slate-200 bg-white/10 hover:bg-white/15 border border-white/15 rounded-xl transition-colors"
             >
-              <Phone className="w-4 h-4" />
+              <Phone className="w-4 h-4 text-emerald-300" />
               <span>{t('contactSyndic')}</span>
             </a>
-            <button
-              onClick={() => onNavigateTab('directory')}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-rose-100 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/30 rounded-xl transition-colors cursor-pointer"
-            >
-              <Siren className="w-4 h-4 text-rose-300" />
-              <span>{t('emergencies24h')}</span>
-            </button>
-            <button
-              onClick={() => onNavigateTab('notices')}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs sm:text-sm font-medium text-slate-200 bg-white/10 hover:bg-white/15 border border-white/15 rounded-xl transition-colors cursor-pointer"
-            >
-              <ScrollText className="w-4 h-4 text-emerald-300" />
-              <span>{t('rulesShortcut')}</span>
-            </button>
           </div>
         </div>
 
@@ -721,6 +733,21 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
           onClose={() => setIsReportModalOpen(false)}
           onSubmit={reportResidentIncident}
           onIncidentCreated={(inc) => setChatIncident(inc)}
+        />
+      )}
+
+      {isMyAptOpen && (
+        <MyApartmentModal
+          onClose={() => setIsMyAptOpen(false)}
+          onViewReceipt={onViewReceipt}
+          onOpenDeclarePayment={(aptId) => setDeclareAptId(aptId)}
+        />
+      )}
+
+      {declareAptId !== null && (
+        <DeclarePaymentModal
+          defaultApartmentId={declareAptId || undefined}
+          onClose={() => setDeclareAptId(null)}
         />
       )}
 

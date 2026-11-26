@@ -14,8 +14,10 @@ import {
   Pencil,
   Trash2,
   Check,
+  Camera,
 } from 'lucide-react';
 import { Apartment, Incident, UserRole } from '../types';
+import { compressImageToDataUrl } from '../utils/helpers';
 import { useAppStore } from '../stores/AppStore';
 import { useI18n } from '../i18n';
 import { canManageMaintenance } from '../utils/permissions';
@@ -92,6 +94,8 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
     : null;
 
   const [text, setText] = useState('');
+  const [draftPhotoUrl, setDraftPhotoUrl] = useState('');
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
@@ -254,8 +258,18 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
     }
   };
 
+  const handleAttachPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const compressed = await compressImageToDataUrl(file, 960, 0.72);
+    setDraftPhotoUrl(compressed);
+    e.target.value = '';
+  };
+
   const handleSend = async (customText?: string) => {
-    const content = (customText ?? text).trim();
+    const rawContent = (customText ?? text).trim();
+    const attachPhoto = customText === undefined ? draftPhotoUrl : '';
+    const content = rawContent || (attachPhoto ? (lang === 'ar' ? '📷 صورة مرفقة' : '📷 Photo jointe') : '');
     if (!content || sending) return;
 
     const cleanName = residentIdentity.name.trim();
@@ -278,9 +292,11 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
         text: content,
         senderName: isBureau ? undefined : composedSender,
         apartmentNumber: isBureau ? undefined : aptNum || undefined,
+        photoUrl: attachPhoto || undefined,
       });
       if (sent && customText === undefined) {
         setText('');
+        setDraftPhotoUrl('');
       }
     } finally {
       setSending(false);
@@ -438,6 +454,20 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
 
         {/* Messages Scroll Area */}
         <div className="grow overflow-y-auto px-4 py-4 space-y-3 bg-slate-50/50 dark:bg-slate-950/40">
+          {liveIncident.photoUrl && (
+            <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                {lang === 'ar' ? 'صورة العطل المرفقة' : 'Photo initiale du signalement'}
+              </div>
+              <img
+                src={liveIncident.photoUrl}
+                alt={liveIncident.title}
+                onClick={() => setLightboxUrl(liveIncident.photoUrl!)}
+                className="max-h-44 rounded-lg object-cover cursor-pointer border border-slate-200 dark:border-slate-700"
+              />
+            </div>
+          )}
+
           {/* Initial Report Summary Card if no messages yet or as context */}
           {liveIncident.description && messages.length === 0 && (
             <div className="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/50 text-xs space-y-1">
@@ -575,6 +605,14 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
                           : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-es-sm'
                       }`}
                     >
+                      {msg.photoUrl && (
+                        <img
+                          src={msg.photoUrl}
+                          alt="Pièce jointe"
+                          onClick={() => setLightboxUrl(msg.photoUrl!)}
+                          className="max-h-44 rounded-xl object-cover mb-1.5 cursor-pointer border border-white/20"
+                        />
+                      )}
                       {msg.text}
                     </div>
                   )}
@@ -637,7 +675,25 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
             </div>
           )}
 
-          {/* Input + Send */}
+          {draftPhotoUrl && (
+            <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs">
+              <div className="flex items-center gap-2">
+                <img src={draftPhotoUrl} alt="Aperçu" className="w-10 h-10 rounded-lg object-cover" />
+                <span className="font-semibold text-emerald-800 dark:text-emerald-200">
+                  {lang === 'ar' ? 'صورة جاهزة للإرسال' : 'Photo prête à envoyer'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDraftPhotoUrl('')}
+                className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Input + Photo + Send */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -645,6 +701,13 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
             }}
             className="flex items-end gap-2"
           >
+            <label
+              title={lang === 'ar' ? 'إرفاق صورة' : 'Joindre une photo'}
+              className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-600 dark:text-slate-300 hover:text-emerald-600 border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+            >
+              <Camera className="w-4 h-4" />
+              <input type="file" accept="image/*" onChange={handleAttachPhoto} className="hidden" />
+            </label>
             <textarea
               rows={2}
               maxLength={800}
@@ -669,7 +732,7 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
             />
             <button
               type="submit"
-              disabled={sending || !text.trim()}
+              disabled={sending || (!text.trim() && !draftPhotoUrl)}
               className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
             >
               <Send className="w-3.5 h-3.5" />
@@ -678,6 +741,15 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
           </form>
         </div>
       </aside>
+
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-[70] bg-slate-950/85 flex items-center justify-center p-4 cursor-pointer"
+        >
+          <img src={lightboxUrl} alt="Agrandissement" className="max-w-full max-h-[88vh] rounded-2xl shadow-2xl" />
+        </div>
+      )}
     </div>
   );
 };

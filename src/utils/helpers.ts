@@ -185,3 +185,187 @@ export function maskPhone(phone?: string): string {
   if (clean.length <= 4) return '••••';
   return `${clean.slice(0, 4)} •• •• ${clean.slice(-2)}`;
 }
+
+export function buildWhatsAppUrl(phone: string | undefined, text: string): string | null {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (digits.length < 9) return null;
+  const intl = digits.startsWith('0') ? `213${digits.slice(1)}` : digits;
+  return `https://wa.me/${intl}?text=${encodeURIComponent(text)}`;
+}
+
+export function generateDefaultPinForApt(aptId: string, idx: number): string {
+  let hash = (idx + 1) * 317;
+  for (let i = 0; i < aptId.length; i++) {
+    hash = (hash * 31 + aptId.charCodeAt(i)) % 9000;
+  }
+  return String(1000 + (Math.abs(hash) % 9000));
+}
+
+export function getDynamicYears(
+  payments: Array<{ month?: string }> = [],
+  transactions: Array<{ date?: string }> = []
+): string[] {
+  const nowYr = new Date().getFullYear();
+  const years = new Set<string>();
+  for (let y = 2024; y <= nowYr + 1; y++) {
+    years.add(String(y));
+  }
+  payments.forEach((p) => {
+    const yr = (p.month || '').slice(0, 4);
+    if (/^\d{4}$/.test(yr)) years.add(yr);
+  });
+  transactions.forEach((tx) => {
+    const yr = (tx.date || '').slice(0, 4);
+    if (/^\d{4}$/.test(yr)) years.add(yr);
+  });
+  return Array.from(years).sort((a, b) => a.localeCompare(b));
+}
+
+export function getAvailableFeePeriods(
+  feeFrequency: 'annuel' | 'mensuel' = 'annuel',
+  payments: Array<{ month?: string }> = [],
+  transactions: Array<{ date?: string }> = []
+): string[] {
+  const now = new Date();
+  const curYr = now.getFullYear();
+  const yearsDesc = getDynamicYears(payments, transactions).sort((a, b) => b.localeCompare(a));
+
+  const months: string[] = [];
+  if (feeFrequency === 'mensuel') {
+    for (let m = 12; m >= 1; m--) {
+      months.push(`${curYr}-${String(m).padStart(2, '0')}`);
+    }
+  } else {
+    const curM = now.getMonth() + 1;
+    for (let offset = 0; offset < 4; offset++) {
+      let m = curM - offset;
+      let y = curYr;
+      if (m <= 0) {
+        m += 12;
+        y -= 1;
+      }
+      months.push(`${y}-${String(m).padStart(2, '0')}`);
+    }
+  }
+
+  const extraFromData = payments
+    .map((p) => p.month || '')
+    .filter((m) => m && !yearsDesc.includes(m) && !months.includes(m));
+
+  return feeFrequency === 'mensuel'
+    ? [...months, ...yearsDesc, ...extraFromData]
+    : [...yearsDesc, ...months, ...extraFromData];
+}
+
+export function generateReceiptWhatsAppText(
+  payment: {
+    receiptNumber: string;
+    apartmentNumber: string;
+    residentName: string;
+    month: string;
+    amountDZD: number;
+    paymentMethod: string;
+    paymentDate: string;
+  },
+  building: { buildingNumber: string; residenceName: string; syndicPresident: string },
+  remainingDueDZD: number,
+  lang: Language = 'fr'
+): string {
+  if (lang === 'ar') {
+    return [
+      `✅ *وصل دفع رسمي — ${building.buildingNumber}* (${building.residenceName})`,
+      `📄 رقم الوصل : *${payment.receiptNumber}*`,
+      `🏠 الشقة : *${payment.apartmentNumber}* (${payment.residentName})`,
+      `📅 الفترة : *${formatMonthName(payment.month, 'ar')}*`,
+      `💰 المبلغ المسدد : *${formatDZD(payment.amountDZD, 'ar')}* (${payment.paymentMethod})`,
+      remainingDueDZD > 0
+        ? `⏳ الباقي للتسوية : ${formatDZD(remainingDueDZD, 'ar')}`
+        : `✨ الوضعية : *مسواة بالكامل (0 دج متبقي)*`,
+      '',
+      `شكراً لمساهمتكم — رئيس السانديك ${building.syndicPresident}`,
+    ].join('\n');
+  }
+  return [
+    `✅ *QUITTANCE DE COTISATION — ${building.buildingNumber}* (${building.residenceName})`,
+    `📄 Quittance N° : *${payment.receiptNumber}*`,
+    `🏠 Logement : *${payment.apartmentNumber}* (${payment.residentName})`,
+    `📅 Période : *${formatMonthName(payment.month, 'fr')}*`,
+    `💰 Montant reçu : *${formatDZD(payment.amountDZD, 'fr')}* (${payment.paymentMethod})`,
+    remainingDueDZD > 0
+      ? `⏳ Reste à régulariser : ${formatDZD(remainingDueDZD, 'fr')}`
+      : `✨ Situation : *Soldée (0 DZD restant)*`,
+    '',
+    `Merci pour votre contribution — Syndic ${building.syndicPresident}`,
+  ].join('\n');
+}
+
+export function generateNoticeWhatsAppText(
+  notice: { title: string; type: string; date: string; message: string; targetAudience?: string },
+  building: { buildingNumber: string; residenceName: string; syndicPresident: string },
+  lang: Language = 'fr'
+): string {
+  const icon =
+    notice.type === 'urgent'
+      ? '🚨'
+      : notice.type === 'coupure_eau'
+      ? '💧'
+      : notice.type === 'assemblee'
+      ? '🗳️'
+      : notice.type === 'travaux'
+      ? '🔧'
+      : '📢';
+  return [
+    `${icon} *AVIS AUX RÉSIDENTS — ${building.buildingNumber}* (${building.residenceName})`,
+    `📌 *${notice.title}*`,
+    `📅 ${formatDateFr(notice.date, lang)}${notice.targetAudience ? ` · 👥 ${notice.targetAudience}` : ''}`,
+    '',
+    notice.message,
+    '',
+    `Bureau du Syndic — ${building.syndicPresident}`,
+  ].join('\n');
+}
+
+export async function compressImageToDataUrl(
+  file: File,
+  maxDim = 960,
+  quality = 0.72
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Lecture image impossible'));
+    reader.onload = () => {
+      const rawUrl = String(reader.result || '');
+      const img = new Image();
+      img.onerror = () => resolve(rawUrl);
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width >= height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(rawUrl);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressed);
+        } catch {
+          resolve(rawUrl);
+        }
+      };
+      img.src = rawUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}

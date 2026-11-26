@@ -1,7 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { PlusCircle, Pencil, Trash2, X, AlertTriangle } from 'lucide-react';
 import { Apartment, AppData, PaymentMethod, PaymentRecord } from '../../types';
-import { formatDZD, formatMonthName, getCurrentMonthStr } from '../../utils/helpers';
+import {
+  formatDZD,
+  formatMonthName,
+  getAvailableFeePeriods,
+  getCurrentMonthStr,
+} from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 
 interface RecordPaymentModalProps {
@@ -115,7 +120,11 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
     onSavePayment(newPayment, printDirectly);
   };
 
-  const presetMonths = ['2026', '2025', '2024', '2027', '2026-11', '2026-10'];
+  const presetMonths = getAvailableFeePeriods(
+    data.building.feeFrequency || 'annuel',
+    data.payments,
+    data.transactions
+  );
   const monthOptions = editingPayment && !presetMonths.includes(editingPayment.month)
     ? [editingPayment.month, ...presetMonths]
     : presetMonths;

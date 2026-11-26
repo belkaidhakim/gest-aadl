@@ -370,6 +370,23 @@ function maskPhone(phone) {
   return `${clean.slice(0, 4)} •• •• ${clean.slice(-2)}`;
 }
 
+function computeDefaultPin(aptId, idx) {
+  let hash = (idx + 1) * 317;
+  const s = String(aptId || '');
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) % 9000;
+  }
+  return String(1000 + (Math.abs(hash) % 9000));
+}
+
+function validateSafePhotoDataUrl(raw) {
+  if (!raw || typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.length > 950000) return undefined;
+  if (!/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
 function sanitizeDataForResident(data) {
   if (!data) return null;
   return {
@@ -380,6 +397,7 @@ function sanitizeDataForResident(data) {
     },
     apartments: (data.apartments || []).map((apt) => ({
       ...apt,
+      residentPin: undefined,
       resident: {
         ...apt.resident,
         birthDate: undefined,
@@ -397,6 +415,14 @@ function sanitizeDataForResident(data) {
             startDate: apt.tenant.startDate,
           }
         : undefined,
+    })),
+    paymentDeclarations: [],
+    specialCalls: (data.specialCalls || []).map((sc) => ({
+      ...sc,
+      contributions: (sc.contributions || []).map((c) => ({
+        ...c,
+        residentName: 'Copropriétaire',
+      })),
     })),
   };
 }
@@ -521,7 +547,17 @@ async function getDefaultBuildingId(sql) {
 async function getBuildingState(sql, buildingId) {
   const rows = await sql`SELECT payload FROM gest_buildings WHERE id = ${buildingId} LIMIT 1`;
   if (!rows[0]) return null;
-  return parsePayload(rows[0].payload);
+  const parsed = parsePayload(rows[0].payload);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    apartments: (parsed.apartments || []).map((apt, idx) => ({
+      ...apt,
+      residentPin: apt.residentPin || computeDefaultPin(apt.id, idx),
+    })),
+    paymentDeclarations: parsed.paymentDeclarations || [],
+    specialCalls: parsed.specialCalls || [],
+  };
 }
 
 async function saveBuildingState(sql, buildingId, nextState) {
@@ -1116,6 +1152,7 @@ export default {
         const effectiveReporter = reportedBy.length >= 2 ? reportedBy : 'Résident du bâtiment';
         const apartmentNumber = String(raw.apartmentNumber || '').trim().slice(0, 30);
         const initialMessage = String(raw.initialMessage || '').trim().slice(0, 800);
+        const photoUrl = validateSafePhotoDataUrl(raw.photoUrl);
         const openingText = initialMessage || description || `Signalement : ${title} (${location})`;
 
         const cleanIncident = {
@@ -1127,6 +1164,7 @@ export default {
           priority,
           status: 'signale',
           description,
+          ...(photoUrl ? { photoUrl } : {}),
           reportedBy: effectiveReporter,
           reportedDate: nowIso,
           estimatedCostDZD: 0,
@@ -1138,6 +1176,7 @@ export default {
               senderName: effectiveReporter,
               ...(apartmentNumber ? { apartmentNumber } : {}),
               text: openingText,
+              ...(photoUrl ? { photoUrl } : {}),
               timestamp: nowIso,
             },
           ],
@@ -1257,9 +1296,10 @@ export default {
           );
         }
         const body = await readJsonBody(request);
-        const text = String(body?.text || '').trim().slice(0, 800);
+        const photoUrl = validateSafePhotoDataUrl(body?.photoUrl);
+        const text = String(body?.text || '').trim().slice(0, 800) || (photoUrl ? '📷 Photo jointe' : '');
         if (!text) {
-          return jsonResponse({ error: 'Veuillez saisir un message.' }, 400);
+          return jsonResponse({ error: 'Veuillez saisir un message ou joindre une photo.' }, 400);
         }
         const state = await getBuildingState(sql, buildingId);
         if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
@@ -1285,6 +1325,7 @@ export default {
           senderName,
           ...(!isBureauSender && aptNum ? { apartmentNumber: aptNum } : {}),
           text,
+          ...(photoUrl ? { photoUrl } : {}),
           timestamp: new Date().toISOString(),
         };
 
@@ -1664,6 +1705,41 @@ export default {
         return jsonResponse({ ok: true, notice: body.notice }, 201);
       }
 
+      const noticeItemMatch = urlPath.match(/^\/api\/notices\/([^/]+)$/);
+      if (noticeItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const noticeId = decodeURIComponent(noticeItemMatch[1]);
+        const body = await readJsonBody(request);
+        const patch = body?.notice;
+        const state = await getBuildingState(sql, buildingId);
+        if (!state || !patch) return jsonResponse({ error: 'Avis invalide.' }, 400);
+        let updatedNotice = null;
+        const nextNotices = (state.notices || []).map((n) => {
+          if (n.id !== noticeId) return n;
+          updatedNotice = { ...n, ...patch, id: noticeId };
+          return updatedNotice;
+        });
+        if (!updatedNotice) return jsonResponse({ error: 'Avis introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, { ...state, notices: nextNotices });
+        await writeAuditLog(sql, buildingId, actor, 'UPDATE_NOTICE', 'notice', noticeId, `Avis modifié : ${updatedNotice.title}`);
+        return jsonResponse({ ok: true, notice: updatedNotice });
+      }
+
+      if (noticeItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const noticeId = decodeURIComponent(noticeItemMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false }, 404);
+        const target = (state.notices || []).find((n) => n.id === noticeId);
+        if (!target) return jsonResponse({ ok: false, error: 'Avis introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          notices: (state.notices || []).filter((n) => n.id !== noticeId),
+        });
+        await writeAuditLog(sql, buildingId, actor, 'DELETE_NOTICE', 'notice', noticeId, `Avis supprimé : ${target.title}`);
+        return jsonResponse({ ok: true });
+      }
+
       if (urlPath === '/api/votes' && method === 'POST') {
         if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
         const body = await readJsonBody(request);
@@ -1675,6 +1751,53 @@ export default {
         });
         await writeAuditLog(sql, buildingId, actor, 'CREATE_VOTE', 'vote', body.vote.id, `Vote AG ouvert : ${body.vote.title}`);
         return jsonResponse({ ok: true, vote: body.vote }, 201);
+      }
+
+      const voteItemMatch = urlPath.match(/^\/api\/votes\/([^/]+)$/);
+      if (voteItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const voteId = decodeURIComponent(voteItemMatch[1]);
+        const body = await readJsonBody(request);
+        const patch = body?.vote;
+        const state = await getBuildingState(sql, buildingId);
+        if (!state || !patch) return jsonResponse({ error: 'Vote invalide.' }, 400);
+        let updatedVote = null;
+        const nextVotes = (state.votes || []).map((v) => {
+          if (v.id !== voteId) return v;
+          updatedVote = {
+            ...v,
+            title: patch.title ?? v.title,
+            description: patch.description ?? v.description,
+            endDate: patch.endDate ?? v.endDate,
+            options: Array.isArray(patch.options)
+              ? patch.options.map((po, idx) => ({
+                  id: po.id || v.options[idx]?.id || `opt-${idx + 1}`,
+                  label: po.label,
+                  votes: v.options.find((vo) => vo.id === po.id)?.votes ?? po.votes ?? 0,
+                }))
+              : v.options,
+          };
+          return updatedVote;
+        });
+        if (!updatedVote) return jsonResponse({ error: 'Vote introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, { ...state, votes: nextVotes });
+        await writeAuditLog(sql, buildingId, actor, 'UPDATE_VOTE', 'vote', voteId, `Vote modifié : ${updatedVote.title}`);
+        return jsonResponse({ ok: true, vote: updatedVote });
+      }
+
+      if (voteItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const voteId = decodeURIComponent(voteItemMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false }, 404);
+        const target = (state.votes || []).find((v) => v.id === voteId);
+        if (!target) return jsonResponse({ ok: false, error: 'Vote introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          votes: (state.votes || []).filter((v) => v.id !== voteId),
+        });
+        await writeAuditLog(sql, buildingId, actor, 'DELETE_VOTE', 'vote', voteId, `Vote supprimé : ${target.title}`);
+        return jsonResponse({ ok: true });
       }
 
       const voteToggleMatch = urlPath.match(/^\/api\/votes\/([^/]+)\/toggle$/);
@@ -1720,6 +1843,53 @@ export default {
         return jsonResponse({ ok: true, vote: updatedVote });
       }
 
+      const voteResidentCastMatch = urlPath.match(/^\/api\/votes\/([^/]+)\/resident-cast$/);
+      if (voteResidentCastMatch && method === 'POST') {
+        if (!checkResidentChatRateLimit(request)) {
+          return jsonResponse({ error: 'Trop de tentatives récentes. Réessayez dans quelques minutes.' }, 429);
+        }
+        const voteId = decodeURIComponent(voteResidentCastMatch[1]);
+        const body = await readJsonBody(request);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const apt = (state.apartments || []).find((a) => a.id === body.apartmentId);
+        if (!apt || apt.occupancy === 'vacant') {
+          return jsonResponse({ error: 'Logement non éligible au vote.' }, 400);
+        }
+        if (String(body.pin || '').trim() !== String(apt.residentPin || '').trim()) {
+          return jsonResponse(
+            { error: 'Code PIN du logement incorrect. Demandez votre code à 4 chiffres au Président du Syndic.' },
+            401
+          );
+        }
+        const targetVote = (state.votes || []).find((v) => v.id === voteId);
+        if (!targetVote || targetVote.status !== 'active') {
+          return jsonResponse({ error: 'Cette consultation est clôturée ou introuvable.' }, 400);
+        }
+        if ((targetVote.votedApartments || []).includes(apt.id)) {
+          return jsonResponse({ error: 'Ce logement a déjà voté pour cette consultation.' }, 400);
+        }
+        const updatedVote = {
+          ...targetVote,
+          votedApartments: [...(targetVote.votedApartments || []), apt.id],
+          options: (targetVote.options || []).map((o) =>
+            o.id === body.optionId ? { ...o, votes: o.votes + 1 } : o
+          ),
+        };
+        const nextVotes = (state.votes || []).map((v) => (v.id === voteId ? updatedVote : v));
+        await saveBuildingState(sql, buildingId, { ...state, votes: nextVotes });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          { fullName: `${apt.number} (${apt.resident.name})`, role: 'resident' },
+          'RESIDENT_CAST_VOTE',
+          'vote',
+          voteId,
+          `Vote en ligne enregistré par ${apt.number} (${targetVote.title})`
+        );
+        return jsonResponse({ ok: true, vote: updatedVote });
+      }
+
       if (urlPath === '/api/minutes' && method === 'POST') {
         if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
         const body = await readJsonBody(request);
@@ -1731,6 +1901,41 @@ export default {
         });
         await writeAuditLog(sql, buildingId, actor, 'ADD_MINUTES', 'minutes', body.minutes.id, `PV d'AG enregistré : ${body.minutes.title}`);
         return jsonResponse({ ok: true, minutes: body.minutes }, 201);
+      }
+
+      const minutesItemMatch = urlPath.match(/^\/api\/minutes\/([^/]+)$/);
+      if (minutesItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const pvId = decodeURIComponent(minutesItemMatch[1]);
+        const body = await readJsonBody(request);
+        const patch = body?.minutes;
+        const state = await getBuildingState(sql, buildingId);
+        if (!state || !patch) return jsonResponse({ error: 'PV invalide.' }, 400);
+        let updatedPv = null;
+        const nextList = (state.assemblyMinutes || []).map((m) => {
+          if (m.id !== pvId) return m;
+          updatedPv = { ...m, ...patch, id: pvId };
+          return updatedPv;
+        });
+        if (!updatedPv) return jsonResponse({ error: 'PV introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, { ...state, assemblyMinutes: nextList });
+        await writeAuditLog(sql, buildingId, actor, 'UPDATE_MINUTES', 'minutes', pvId, `PV d'AG modifié : ${updatedPv.title}`);
+        return jsonResponse({ ok: true, minutes: updatedPv });
+      }
+
+      if (minutesItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const pvId = decodeURIComponent(minutesItemMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false }, 404);
+        const target = (state.assemblyMinutes || []).find((m) => m.id === pvId);
+        if (!target) return jsonResponse({ ok: false, error: 'PV introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          assemblyMinutes: (state.assemblyMinutes || []).filter((m) => m.id !== pvId),
+        });
+        await writeAuditLog(sql, buildingId, actor, 'DELETE_MINUTES', 'minutes', pvId, `PV d'AG supprimé : ${target.title}`);
+        return jsonResponse({ ok: true });
       }
 
       if (urlPath === '/api/rules' && method === 'PUT') {
@@ -1755,6 +1960,388 @@ export default {
         });
         await writeAuditLog(sql, buildingId, actor, 'ADD_VENDOR', 'vendor', body.vendor.id, `Prestataire ajouté : ${body.vendor.name}`);
         return jsonResponse({ ok: true, vendor: body.vendor }, 201);
+      }
+
+      const vendorItemMatch = urlPath.match(/^\/api\/vendors\/([^/]+)$/);
+      if (vendorItemMatch && method === 'PUT') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const venId = decodeURIComponent(vendorItemMatch[1]);
+        const body = await readJsonBody(request);
+        const patch = body?.vendor;
+        const state = await getBuildingState(sql, buildingId);
+        if (!state || !patch) return jsonResponse({ error: 'Prestataire invalide.' }, 400);
+        let updatedVen = null;
+        const nextVendors = (state.vendors || []).map((v) => {
+          if (v.id !== venId) return v;
+          updatedVen = { ...v, ...patch, id: venId };
+          return updatedVen;
+        });
+        if (!updatedVen) return jsonResponse({ error: 'Prestataire introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, { ...state, vendors: nextVendors });
+        await writeAuditLog(sql, buildingId, actor, 'UPDATE_VENDOR', 'vendor', venId, `Prestataire modifié : ${updatedVen.name}`);
+        return jsonResponse({ ok: true, vendor: updatedVen });
+      }
+
+      if (vendorItemMatch && method === 'DELETE') {
+        if (!canGovernance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const venId = decodeURIComponent(vendorItemMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false }, 404);
+        const target = (state.vendors || []).find((v) => v.id === venId);
+        if (!target) return jsonResponse({ ok: false, error: 'Prestataire introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          vendors: (state.vendors || []).filter((v) => v.id !== venId),
+        });
+        await writeAuditLog(sql, buildingId, actor, 'DELETE_VENDOR', 'vendor', venId, `Prestataire supprimé : ${target.name}`);
+        return jsonResponse({ ok: true });
+      }
+
+      // Pack 3: Payment Declarations (BaridiMob / CCP proof submitted by resident)
+      if (urlPath === '/api/payment-declarations' && method === 'POST') {
+        if (!checkResidentReportRateLimit(request)) {
+          return jsonResponse({ error: 'Trop d’envois récents. Veuillez patienter quelques minutes.' }, 429);
+        }
+        const body = await readJsonBody(request);
+        const raw = body?.declaration || body || {};
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const apt = (state.apartments || []).find((a) => a.id === raw.apartmentId);
+        const amountNum = Number(raw.amountDZD);
+        if (!apt || !Number.isFinite(amountNum) || amountNum <= 0) {
+          return jsonResponse({ error: 'Logement ou montant invalide.' }, 400);
+        }
+        const proofDataUrl = validateSafePhotoDataUrl(raw.proofDataUrl);
+        const specialCall = raw.specialCallId
+          ? (state.specialCalls || []).find((sc) => sc.id === raw.specialCallId)
+          : null;
+        const decl = {
+          id: `decl-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+          apartmentId: apt.id,
+          apartmentNumber: apt.number,
+          residentName: apt.resident.name,
+          month: String(raw.month || new Date().getFullYear()).trim().slice(0, 10),
+          ...(specialCall ? { specialCallId: specialCall.id, specialCallTitle: specialCall.title } : {}),
+          amountDZD: amountNum,
+          paymentMethod: raw.paymentMethod || 'BaridiMob',
+          reference: String(raw.reference || '').trim().slice(0, 80) || undefined,
+          ...(proofDataUrl ? { proofDataUrl } : {}),
+          notes: String(raw.notes || '').trim().slice(0, 300) || undefined,
+          status: 'pending',
+          submittedAt: new Date().toISOString(),
+        };
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          paymentDeclarations: [decl, ...(state.paymentDeclarations || [])],
+        });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          { fullName: `${apt.number} (${apt.resident.name})`, role: 'resident' },
+          'DECLARE_PAYMENT',
+          'payment_declaration',
+          decl.id,
+          `Déclaration ${decl.paymentMethod} — ${apt.number} (${specialCall ? specialCall.title : decl.month})`,
+          decl.amountDZD
+        );
+        return jsonResponse({ ok: true, declaration: { ...decl, proofDataUrl: undefined } }, 201);
+      }
+
+      const declApproveMatch = urlPath.match(/^\/api\/payment-declarations\/([^/]+)\/approve$/);
+      if (declApproveMatch && method === 'POST') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const declId = decodeURIComponent(declApproveMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const decl = (state.paymentDeclarations || []).find((d) => d.id === declId);
+        if (!decl) return jsonResponse({ error: 'Déclaration introuvable.' }, 404);
+
+        const nowIso = new Date().toISOString();
+        const remainingDecls = (state.paymentDeclarations || []).filter((d) => d.id !== declId);
+
+        if (decl.specialCallId) {
+          let createdContrib = null;
+          let targetCall = null;
+          const nextCalls = (state.specialCalls || []).map((sc) => {
+            if (sc.id !== decl.specialCallId) return sc;
+            targetCall = sc;
+            const seq = String((sc.contributions || []).length + 1).padStart(3, '0');
+            createdContrib = {
+              id: `spc-${Date.now()}`,
+              receiptNumber: `APP-${sc.id.slice(-4).toUpperCase()}-${seq}`,
+              apartmentId: decl.apartmentId,
+              apartmentNumber: decl.apartmentNumber,
+              residentName: decl.residentName || decl.apartmentNumber,
+              amountDZD: Number(decl.amountDZD),
+              paymentDate: nowIso,
+              paymentMethod: decl.paymentMethod,
+              collectedBy: actor.fullName,
+              notes: decl.reference ? `Réf: ${decl.reference}` : decl.notes,
+            };
+            return { ...sc, contributions: [createdContrib, ...(sc.contributions || [])] };
+          });
+          if (!createdContrib || !targetCall) {
+            return jsonResponse({ error: 'Appel de fonds introuvable.' }, 404);
+          }
+          const tx = {
+            id: `tx-spcall-${createdContrib.id}`,
+            date: nowIso.slice(0, 10),
+            type: 'recette',
+            fund: targetCall.fund || 'reserve',
+            category:
+              targetCall.fund === 'reserve' ? 'Dotation Fonds de Réserve' : 'Cotisations Copropriétaires',
+            amountDZD: createdContrib.amountDZD,
+            description: `Appel spécial "${targetCall.title}" — ${decl.apartmentNumber} (${createdContrib.residentName})`,
+            referenceDoc: createdContrib.receiptNumber,
+            paymentMethod: decl.paymentMethod,
+          };
+          await saveBuildingState(sql, buildingId, {
+            ...state,
+            paymentDeclarations: remainingDecls,
+            specialCalls: nextCalls,
+            transactions: [tx, ...(state.transactions || [])],
+          });
+          await writeAuditLog(
+            sql,
+            buildingId,
+            actor,
+            'APPROVE_PAYMENT_DECLARATION',
+            'special_call',
+            createdContrib.id,
+            `Validation virement ${decl.apartmentNumber} — ${targetCall.title}`,
+            createdContrib.amountDZD
+          );
+          return jsonResponse({
+            ok: true,
+            specialCalls: nextCalls,
+            transaction: tx,
+            paymentDeclarations: remainingDecls,
+          });
+        }
+
+        const prefix = `REC-${decl.month}-`;
+        const maxSeq = (state.payments || []).reduce((max, p) => {
+          if (String(p.receiptNumber || '').startsWith(prefix)) {
+            const n = parseInt(String(p.receiptNumber).slice(prefix.length), 10);
+            if (!isNaN(n) && n > max) return n;
+          }
+          return max;
+        }, 0);
+        const receiptNumber = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
+        const payment = {
+          id: `pay-${decl.month}-${Date.now()}`,
+          receiptNumber,
+          apartmentId: decl.apartmentId,
+          apartmentNumber: decl.apartmentNumber,
+          residentName: decl.residentName || decl.apartmentNumber,
+          month: decl.month,
+          amountDZD: Number(decl.amountDZD),
+          paymentDate: nowIso,
+          paymentMethod: decl.paymentMethod,
+          collectedBy: actor.fullName,
+          notes: [decl.reference ? `Réf: ${decl.reference}` : '', decl.notes || ''].filter(Boolean).join(' · ') || 'Virement validé en ligne',
+        };
+        const tx = {
+          id: `tx-rec-${payment.id}`,
+          date: nowIso.slice(0, 10),
+          type: 'recette',
+          fund: 'courant',
+          category: 'Cotisations Copropriétaires',
+          amountDZD: payment.amountDZD,
+          description: `Cotisation ${payment.month} - ${payment.apartmentNumber} (${payment.residentName})`,
+          referenceDoc: payment.receiptNumber,
+          paymentMethod: payment.paymentMethod,
+          ...(decl.proofDataUrl ? { attachmentDataUrl: decl.proofDataUrl, attachmentName: `Preuve_${payment.apartmentNumber}.jpg` } : {}),
+        };
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          paymentDeclarations: remainingDecls,
+          payments: [payment, ...(state.payments || [])],
+          transactions: [tx, ...(state.transactions || [])],
+        });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          actor,
+          'APPROVE_PAYMENT_DECLARATION',
+          'payment',
+          payment.id,
+          `Validation paiement déclaré ${payment.receiptNumber} — ${payment.apartmentNumber}`,
+          payment.amountDZD
+        );
+        return jsonResponse({
+          ok: true,
+          payment,
+          transaction: tx,
+          paymentDeclarations: remainingDecls,
+        });
+      }
+
+      const declItemMatch = urlPath.match(/^\/api\/payment-declarations\/([^/]+)$/);
+      if (declItemMatch && method === 'DELETE') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const declId = decodeURIComponent(declItemMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false }, 404);
+        const remaining = (state.paymentDeclarations || []).filter((d) => d.id !== declId);
+        await saveBuildingState(sql, buildingId, { ...state, paymentDeclarations: remaining });
+        await writeAuditLog(sql, buildingId, actor, 'REJECT_PAYMENT_DECLARATION', 'payment_declaration', declId, 'Déclaration de paiement rejetée/supprimée');
+        return jsonResponse({ ok: true, paymentDeclarations: remaining });
+      }
+
+      // Pack 3: Special Calls (Appels de fonds exceptionnels / Projets AG)
+      if (urlPath === '/api/special-calls' && method === 'POST') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const body = await readJsonBody(request);
+        const sc = body?.specialCall;
+        const state = await getBuildingState(sql, buildingId);
+        if (!state || !sc?.id || !sc?.title) return jsonResponse({ error: 'Appel de fonds invalide.' }, 400);
+        const cleanCall = {
+          ...sc,
+          amountPerApartmentDZD: Number(sc.amountPerApartmentDZD) || 0,
+          contributions: Array.isArray(sc.contributions) ? sc.contributions : [],
+        };
+        const nextCalls = [cleanCall, ...(state.specialCalls || [])];
+        await saveBuildingState(sql, buildingId, { ...state, specialCalls: nextCalls });
+        await writeAuditLog(sql, buildingId, actor, 'CREATE_SPECIAL_CALL', 'special_call', cleanCall.id, `Appel de fonds créé : ${cleanCall.title}`, cleanCall.amountPerApartmentDZD);
+        return jsonResponse({ ok: true, specialCall: cleanCall }, 201);
+      }
+
+      const scContribMatch = urlPath.match(/^\/api\/special-calls\/([^/]+)\/contribute$/);
+      if (scContribMatch && method === 'POST') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const callId = decodeURIComponent(scContribMatch[1]);
+        const body = await readJsonBody(request);
+        const contrib = body?.contribution;
+        const state = await getBuildingState(sql, buildingId);
+        if (!state || !contrib?.id) return jsonResponse({ error: 'Contribution invalide.' }, 400);
+        let targetCall = null;
+        const nextCalls = (state.specialCalls || []).map((sc) => {
+          if (sc.id !== callId) return sc;
+          targetCall = sc;
+          return { ...sc, contributions: [contrib, ...(sc.contributions || [])] };
+        });
+        if (!targetCall) return jsonResponse({ error: 'Appel de fonds introuvable.' }, 404);
+        const tx = {
+          id: `tx-spcall-${contrib.id}`,
+          date: String(contrib.paymentDate || new Date().toISOString()).slice(0, 10),
+          type: 'recette',
+          fund: targetCall.fund || 'reserve',
+          category: targetCall.fund === 'reserve' ? 'Dotation Fonds de Réserve' : 'Cotisations Copropriétaires',
+          amountDZD: Number(contrib.amountDZD),
+          description: `Appel spécial "${targetCall.title}" — ${contrib.apartmentNumber} (${contrib.residentName})`,
+          referenceDoc: contrib.receiptNumber,
+          paymentMethod: contrib.paymentMethod,
+        };
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          specialCalls: nextCalls,
+          transactions: [tx, ...(state.transactions || [])],
+        });
+        await writeAuditLog(sql, buildingId, actor, 'RECORD_SPECIAL_CONTRIB', 'special_call', contrib.id, `Encaissement appel "${targetCall.title}" — ${contrib.apartmentNumber}`, Number(contrib.amountDZD));
+        return jsonResponse({ ok: true, specialCalls: nextCalls, transaction: tx }, 201);
+      }
+
+      const scContribDelMatch = urlPath.match(/^\/api\/special-calls\/([^/]+)\/contributions\/([^/]+)$/);
+      if (scContribDelMatch && method === 'DELETE') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const callId = decodeURIComponent(scContribDelMatch[1]);
+        const contribId = decodeURIComponent(scContribDelMatch[2]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false }, 404);
+        const nextCalls = (state.specialCalls || []).map((sc) =>
+          sc.id === callId
+            ? { ...sc, contributions: (sc.contributions || []).filter((c) => c.id !== contribId) }
+            : sc
+        );
+        const nextTxs = (state.transactions || []).filter((t) => t.id !== `tx-spcall-${contribId}`);
+        await saveBuildingState(sql, buildingId, { ...state, specialCalls: nextCalls, transactions: nextTxs });
+        await writeAuditLog(sql, buildingId, actor, 'DELETE_SPECIAL_CONTRIB', 'special_call', contribId, 'Contribution appel spécial supprimée');
+        return jsonResponse({ ok: true, specialCalls: nextCalls });
+      }
+
+      const scItemMatch = urlPath.match(/^\/api\/special-calls\/([^/]+)$/);
+      if (scItemMatch && method === 'PUT') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const callId = decodeURIComponent(scItemMatch[1]);
+        const body = await readJsonBody(request);
+        const patch = body?.specialCall;
+        const state = await getBuildingState(sql, buildingId);
+        if (!state || !patch) return jsonResponse({ error: 'Appel invalide.' }, 400);
+        let updatedCall = null;
+        const nextCalls = (state.specialCalls || []).map((sc) => {
+          if (sc.id !== callId) return sc;
+          updatedCall = { ...sc, ...patch, id: callId, contributions: sc.contributions || [] };
+          return updatedCall;
+        });
+        if (!updatedCall) return jsonResponse({ error: 'Appel introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, { ...state, specialCalls: nextCalls });
+        await writeAuditLog(sql, buildingId, actor, 'UPDATE_SPECIAL_CALL', 'special_call', callId, `Appel modifié : ${updatedCall.title}`);
+        return jsonResponse({ ok: true, specialCall: updatedCall });
+      }
+
+      if (scItemMatch && method === 'DELETE') {
+        if (!canFinance(actor.role)) return jsonResponse({ error: 'Réservé au Président ou Trésorier.' }, 403);
+        const callId = decodeURIComponent(scItemMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false }, 404);
+        const target = (state.specialCalls || []).find((sc) => sc.id === callId);
+        if (!target) return jsonResponse({ ok: false }, 404);
+        const contribIds = new Set((target.contributions || []).map((c) => `tx-spcall-${c.id}`));
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          specialCalls: (state.specialCalls || []).filter((sc) => sc.id !== callId),
+          transactions: (state.transactions || []).filter((t) => !contribIds.has(t.id)),
+        });
+        await writeAuditLog(sql, buildingId, actor, 'DELETE_SPECIAL_CALL', 'special_call', callId, `Appel spécial supprimé : ${target.title}`);
+        return jsonResponse({ ok: true });
+      }
+
+      // Pack 4: Resident Private Space ("Mon Logement" via 4-digit PIN)
+      if (urlPath === '/api/resident/my-apartment' && method === 'POST') {
+        if (!checkResidentChatRateLimit(request)) {
+          return jsonResponse({ error: 'Trop de tentatives récentes. Veuillez patienter quelques minutes.' }, 429);
+        }
+        const body = await readJsonBody(request);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const apt = (state.apartments || []).find((a) => a.id === body.apartmentId);
+        if (!apt) return jsonResponse({ error: 'Logement introuvable.' }, 404);
+        if (String(body.pin || '').trim() !== String(apt.residentPin || '').trim()) {
+          return jsonResponse(
+            { error: 'Code PIN incorrect. Demandez votre code personnel à 4 chiffres au Président du Syndic.' },
+            401
+          );
+        }
+        const myPayments = (state.payments || []).filter((p) => p.apartmentId === apt.id);
+        const mySpecialCalls = (state.specialCalls || []).map((sc) => {
+          const myContribs = (sc.contributions || []).filter((c) => c.apartmentId === apt.id);
+          return {
+            id: sc.id,
+            title: sc.title,
+            amountPerApartmentDZD: sc.amountPerApartmentDZD,
+            dueDate: sc.dueDate,
+            paidDZD: myContribs.reduce((s, c) => s + c.amountDZD, 0),
+            contributions: myContribs,
+          };
+        });
+        const myPendingDecls = (state.paymentDeclarations || [])
+          .filter((d) => d.apartmentId === apt.id)
+          .map(({ proofDataUrl: _p, ...rest }) => rest);
+        return jsonResponse({
+          ok: true,
+          apartment: {
+            id: apt.id,
+            number: apt.number,
+            floor: apt.floor,
+            type: apt.type,
+            occupancy: apt.occupancy,
+            residentName: apt.resident.name,
+          },
+          payments: myPayments,
+          specialCalls: mySpecialCalls,
+          pendingDeclarations: myPendingDecls,
+        });
       }
 
       if (urlPath === '/api/audit-logs' && method === 'GET') {

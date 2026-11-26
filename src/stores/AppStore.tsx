@@ -13,8 +13,11 @@ import {
   IncidentMessage,
   IncidentStatus,
   Notice,
+  PaymentDeclaration,
   PaymentRecord,
   PreventiveTask,
+  SpecialCall,
+  SpecialCallContribution,
   Transaction,
   UserRole,
   Vendor,
@@ -30,29 +33,43 @@ import {
   addMinutesRemote,
   addNoticeRemote,
   addPreventiveRemote,
+  addSpecialCallRemote,
   addTransactionRemote,
   addVendorRemote,
   addVoteRemote,
   appendLocalAuditLog,
+  approvePaymentDeclarationRemote,
   castVoteRemote,
   clearIncidentMessagesRemote,
   completePreventiveRemote,
   createBuildingRemote,
   deleteIncidentMessageRemote,
   deleteIncidentRemote,
+  deleteMinutesRemote,
+  deleteNoticeRemote,
+  deletePaymentDeclarationRemote,
   deletePaymentRemote,
+  deleteSpecialCallContribRemote,
+  deleteSpecialCallRemote,
   deleteTransactionRemote,
+  deleteVendorRemote,
+  deleteVoteRemote,
   fetchIncidentMessagesRemote,
+  fetchMyApartmentByPinRemote,
   fetchRemoteState,
   fetchServerStatus,
   logoutBureau,
+  MyApartmentPrivateSummary,
   recordPaymentRemote,
+  recordSpecialCallContribRemote,
   replaceRemoteState,
   reportResidentIncidentRemote,
+  residentCastVoteRemote,
   ResidentIncidentReportPayload,
   seedRemoteStateIfEmpty,
   selectIncidentQuoteRemote,
   sendIncidentMessageRemote,
+  submitPaymentDeclarationRemote,
   toggleVoteRemote,
   updateApartmentRemote,
   updateBudgetRemote,
@@ -61,8 +78,13 @@ import {
   updateIncidentMessageRemote,
   updateIncidentRemote,
   updateIncidentStatusRemote,
+  updateMinutesRemote,
+  updateNoticeRemote,
   updatePaymentRemote,
+  updateSpecialCallRemote,
   updateTransactionRemote,
+  updateVendorRemote,
+  updateVoteRemote,
   uploadAttachmentRemote,
 } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
@@ -124,7 +146,7 @@ interface AppStoreValue {
   reportResidentIncident: (payload: ResidentIncidentReportPayload) => Promise<Incident | null>;
   sendIncidentMessage: (
     incidentId: string,
-    payload: { text: string; senderName?: string; apartmentNumber?: string }
+    payload: { text: string; senderName?: string; apartmentNumber?: string; photoUrl?: string }
   ) => Promise<IncidentMessage | null>;
   updateIncidentMessage: (incidentId: string, msgId: string, text: string) => Promise<boolean>;
   deleteIncidentMessage: (incidentId: string, msgId: string) => Promise<boolean>;
@@ -153,12 +175,32 @@ interface AppStoreValue {
   updateBudgetPlan: (plan: BudgetAllocation[]) => Promise<void>;
   uploadAttachment: (filename: string, dataUrl: string) => Promise<{ url: string; name: string }>;
   addNotice: (notice: Notice) => Promise<void>;
+  updateNotice: (notice: Notice) => Promise<void>;
+  deleteNotice: (noticeId: string) => Promise<void>;
   addVote: (vote: AssemblyVote) => Promise<void>;
+  updateVote: (vote: AssemblyVote) => Promise<void>;
+  deleteVote: (voteId: string) => Promise<void>;
   toggleVoteStatus: (voteId: string) => Promise<void>;
   castVote: (voteId: string, optionId: string, apartmentId: string) => Promise<void>;
+  residentCastVote: (voteId: string, optionId: string, apartmentId: string, pin: string) => Promise<boolean>;
   addAssemblyMinutes: (minutes: AssemblyMinutes) => Promise<void>;
+  updateAssemblyMinutes: (minutes: AssemblyMinutes) => Promise<void>;
+  deleteAssemblyMinutes: (pvId: string) => Promise<void>;
   updateHouseRules: (rules: HouseRuleSection[]) => Promise<void>;
   addVendor: (vendor: Vendor) => Promise<void>;
+  updateVendor: (vendor: Vendor) => Promise<void>;
+  deleteVendor: (vendorId: string) => Promise<void>;
+  submitPaymentDeclaration: (
+    decl: Omit<PaymentDeclaration, 'id' | 'status' | 'submittedAt'>
+  ) => Promise<boolean>;
+  approvePaymentDeclaration: (declId: string) => Promise<PaymentRecord | null>;
+  rejectPaymentDeclaration: (declId: string) => Promise<void>;
+  addSpecialCall: (call: SpecialCall) => Promise<void>;
+  updateSpecialCall: (call: SpecialCall) => Promise<void>;
+  deleteSpecialCall: (callId: string) => Promise<void>;
+  recordSpecialCallContribution: (callId: string, contrib: SpecialCallContribution) => Promise<void>;
+  deleteSpecialCallContribution: (callId: string, contribId: string) => Promise<void>;
+  fetchMyApartmentByPin: (apartmentId: string, pin: string) => Promise<MyApartmentPrivateSummary | null>;
   updateApartment: (apt: Apartment) => Promise<void>;
   updateBuilding: (building: BuildingInfo) => Promise<void>;
   resetFinancials: () => Promise<void>;
@@ -576,6 +618,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         priority: payload.priority,
         status: 'signale',
         description: payload.description.trim(),
+        ...(payload.photoUrl ? { photoUrl: payload.photoUrl } : {}),
         reportedBy: effectiveReporter,
         reportedDate: nowIso,
         estimatedCostDZD: 0,
@@ -587,6 +630,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             senderName: effectiveReporter,
             ...(payload.apartmentNumber ? { apartmentNumber: payload.apartmentNumber } : {}),
             text: openingText,
+            ...(payload.photoUrl ? { photoUrl: payload.photoUrl } : {}),
             timestamp: nowIso,
           },
         ],
@@ -608,9 +652,9 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const sendIncidentMessage = useCallback(
     async (
       incidentId: string,
-      payload: { text: string; senderName?: string; apartmentNumber?: string }
+      payload: { text: string; senderName?: string; apartmentNumber?: string; photoUrl?: string }
     ): Promise<IncidentMessage | null> => {
-      const cleanText = payload.text.trim();
+      const cleanText = payload.text.trim() || (payload.photoUrl ? '📷 Photo jointe' : '');
       if (!cleanText) return null;
 
       if (serverConnected) {
@@ -618,6 +662,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           text: cleanText,
           senderName: payload.senderName,
           apartmentNumber: payload.apartmentNumber,
+          photoUrl: payload.photoUrl,
         });
         if (!res.ok || !res.data?.message) {
           toast.error(res.error || 'Impossible d’envoyer le message');
@@ -641,13 +686,14 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const senderName = isBureauSender
         ? user.fullName
         : payload.senderName?.trim() ||
-          (payload.apartmentNumber ? `Résident (${payload.apartmentNumber})` : 'Résident');
+        (payload.apartmentNumber ? `Résident (${payload.apartmentNumber})` : 'Résident');
       const localMsg: IncidentMessage = {
         id: `msg-local-${Date.now()}`,
         senderRole,
         senderName,
         ...(!isBureauSender && payload.apartmentNumber ? { apartmentNumber: payload.apartmentNumber } : {}),
         text: cleanText,
+        ...(payload.photoUrl ? { photoUrl: payload.photoUrl } : {}),
         timestamp: new Date().toISOString(),
       };
       if (!isBureauSender) {
@@ -707,11 +753,11 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           incidents: data.incidents.map((inc) =>
             inc.id === incidentId
               ? {
-                  ...inc,
-                  messages: (inc.messages || []).map((m) =>
-                    m.id === msgId ? { ...m, text: cleanText, editedAt: nowIso } : m
-                  ),
-                }
+                ...inc,
+                messages: (inc.messages || []).map((m) =>
+                  m.id === msgId ? { ...m, text: cleanText, editedAt: nowIso } : m
+                ),
+              }
               : inc
           ),
         },
@@ -750,9 +796,9 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           incidents: data.incidents.map((inc) =>
             inc.id === incidentId
               ? {
-                  ...inc,
-                  messages: (inc.messages || []).filter((m) => m.id !== msgId),
-                }
+                ...inc,
+                messages: (inc.messages || []).filter((m) => m.id !== msgId),
+              }
               : inc
           ),
         },
@@ -796,12 +842,12 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         incidents: prev.incidents.map((inc) =>
           inc.id === incidentId
             ? {
-                ...inc,
-                messages: res.data!.messages || [],
-                status: res.data!.status || inc.status,
-                assignedVendor: res.data!.assignedVendor ?? inc.assignedVendor,
-                resolutionNotes: res.data!.resolutionNotes ?? inc.resolutionNotes,
-              }
+              ...inc,
+              messages: res.data!.messages || [],
+              status: res.data!.status || inc.status,
+              assignedVendor: res.data!.assignedVendor ?? inc.assignedVendor,
+              resolutionNotes: res.data!.resolutionNotes ?? inc.resolutionNotes,
+            }
             : inc
         ),
       }));
@@ -825,22 +871,22 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         newStatus === 'resolu'
           ? `Panne résolue${resolutionNotes ? ` : ${resolutionNotes}` : '.'}`
           : newStatus === 'en_cours'
-          ? 'Signalement pris en charge — intervention en cours.'
-          : null;
+            ? 'Signalement pris en charge — intervention en cours.'
+            : null;
       const updatedIncidents = data.incidents.map((inc) => {
         if (inc.id !== incidentId) return inc;
         if (serverUpdatedInc) return serverUpdatedInc;
         const nextMessages = statusMsgText
           ? [
-              ...(inc.messages || []),
-              {
-                id: `msg-status-${Date.now()}`,
-                senderRole: role,
-                senderName: user.fullName,
-                text: statusMsgText,
-                timestamp: new Date().toISOString(),
-              },
-            ]
+            ...(inc.messages || []),
+            {
+              id: `msg-status-${Date.now()}`,
+              senderRole: role,
+              senderName: user.fullName,
+              text: statusMsgText,
+              timestamp: new Date().toISOString(),
+            },
+          ]
           : inc.messages;
         return {
           ...inc,
@@ -864,8 +910,8 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             inc?.category === 'ascenseur'
               ? 'Maintenance Ascenseurs'
               : inc?.category === 'surpresseur_eau'
-              ? 'Réparation Bâche à Eau / Surpresseur'
-              : 'Achat Fournitures & Ampoules',
+                ? 'Réparation Bâche à Eau / Surpresseur'
+                : 'Achat Fournitures & Ampoules',
           amountDZD: actualCost,
           description: `Réparation clôturée : ${inc?.title || 'Maintenance'}`,
           paymentMethod: 'Espèces',
@@ -967,11 +1013,11 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const updatedTasks = (data.preventiveTasks || []).map((task) =>
         task.id === taskId
           ? {
-              ...task,
-              lastDoneDate: performedDate,
-              nextDueDate: computeNextDueDate(performedDate, task.frequency),
-              history: [{ date: performedDate, performedBy, costDZD, notes }, ...(task.history || [])],
-            }
+            ...task,
+            lastDoneDate: performedDate,
+            nextDueDate: computeNextDueDate(performedDate, task.frequency),
+            history: [{ date: performedDate, performedBy, costDZD, notes }, ...(task.history || [])],
+          }
           : task
       );
 
@@ -986,10 +1032,10 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             target.equipment === 'ascenseur'
               ? 'Maintenance Ascenseurs'
               : target.equipment === 'surpresseur_eau'
-              ? 'Réparation Bâche à Eau / Surpresseur'
-              : target.equipment === 'porte_interphone'
-              ? 'Serrurerie & Interphone'
-              : 'Achat Fournitures & Ampoules',
+                ? 'Réparation Bâche à Eau / Surpresseur'
+                : target.equipment === 'porte_interphone'
+                  ? 'Serrurerie & Interphone'
+                  : 'Achat Fournitures & Ampoules',
           amountDZD: costDZD,
           description: `Entretien préventif : ${target.title} (${performedBy})`,
           paymentMethod: 'Espèces',
@@ -1044,15 +1090,15 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           ...data,
           payments: linkedPaymentId
             ? data.payments.map((p) =>
-                p.id === linkedPaymentId
-                  ? {
-                      ...p,
-                      amountDZD: updatedTx.amountDZD,
-                      paymentMethod: updatedTx.paymentMethod || p.paymentMethod,
-                      paymentDate: updatedTx.date || p.paymentDate,
-                    }
-                  : p
-              )
+              p.id === linkedPaymentId
+                ? {
+                  ...p,
+                  amountDZD: updatedTx.amountDZD,
+                  paymentMethod: updatedTx.paymentMethod || p.paymentMethod,
+                  paymentDate: updatedTx.date || p.paymentDate,
+                }
+                : p
+            )
             : data.payments,
           transactions: data.transactions.map((t) => (t.id === updatedTx.id ? updatedTx : t)),
         },
@@ -1143,6 +1189,44 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [data, serverConnected, activeBuildingId, persistLocal, toast]
   );
 
+  const updateNotice = useCallback(
+    async (notice: Notice) => {
+      if (serverConnected) {
+        const res = await updateNoticeRemote(activeBuildingId, notice);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        { ...data, notices: data.notices.map((n) => (n.id === notice.id ? notice : n)) },
+        activeBuildingId
+      );
+      logLocal('UPDATE_NOTICE', 'notice', `Modification avis : ${notice.title}`);
+      toast.success('Avis mis à jour');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+  );
+
+  const deleteNotice = useCallback(
+    async (noticeId: string) => {
+      if (serverConnected) {
+        const res = await deleteNoticeRemote(activeBuildingId, noticeId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        { ...data, notices: data.notices.filter((n) => n.id !== noticeId) },
+        activeBuildingId
+      );
+      logLocal('DELETE_NOTICE', 'notice', `Suppression avis ${noticeId}`);
+      toast.info('Avis supprimé');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+  );
+
   const addVote = useCallback(
     async (vote: AssemblyVote) => {
       if (serverConnected) {
@@ -1154,6 +1238,42 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       persistLocal({ ...data, votes: [vote, ...data.votes] }, activeBuildingId);
       toast.success(vote.title);
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const updateVote = useCallback(
+    async (vote: AssemblyVote) => {
+      if (serverConnected) {
+        const res = await updateVoteRemote(activeBuildingId, vote);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        { ...data, votes: data.votes.map((v) => (v.id === vote.id ? vote : v)) },
+        activeBuildingId
+      );
+      toast.success('Consultation mise à jour');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const deleteVote = useCallback(
+    async (voteId: string) => {
+      if (serverConnected) {
+        const res = await deleteVoteRemote(activeBuildingId, voteId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        { ...data, votes: data.votes.filter((v) => v.id !== voteId) },
+        activeBuildingId
+      );
+      toast.info('Consultation supprimée');
     },
     [data, serverConnected, activeBuildingId, persistLocal, toast]
   );
@@ -1200,16 +1320,69 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           votes: data.votes.map((v) =>
             v.id === voteId
               ? {
-                  ...v,
-                  votedApartments: [...v.votedApartments, apartmentId],
-                  options: v.options.map((opt) => (opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt)),
-                }
+                ...v,
+                votedApartments: [...v.votedApartments, apartmentId],
+                options: v.options.map((opt) => (opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt)),
+              }
               : v
           ),
         },
         activeBuildingId
       );
       toast.success('Vote enregistré');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const residentCastVote = useCallback(
+    async (voteId: string, optionId: string, apartmentId: string, pin: string): Promise<boolean> => {
+      if (serverConnected) {
+        const res = await residentCastVoteRemote(activeBuildingId, voteId, optionId, apartmentId, pin.trim());
+        if (!res.ok) {
+          toast.error(res.error || 'Code PIN incorrect ou vote impossible.');
+          return false;
+        }
+        if (res.data?.vote) {
+          persistLocal(
+            { ...data, votes: data.votes.map((v) => (v.id === voteId ? res.data!.vote : v)) },
+            activeBuildingId
+          );
+        }
+        toast.success('Votre vote a bien été pris en compte !');
+        return true;
+      }
+
+      const apt = data.apartments.find((a) => a.id === apartmentId);
+      if (!apt || (apt.residentPin && apt.residentPin !== pin.trim())) {
+        toast.error('Code PIN du logement incorrect.');
+        return false;
+      }
+      const targetVote = data.votes.find((v) => v.id === voteId);
+      if (!targetVote || targetVote.status === 'closed') {
+        toast.error('Cette consultation est clôturée.');
+        return false;
+      }
+      if (targetVote.votedApartments.includes(apartmentId)) {
+        toast.error('Ce logement a déjà voté.');
+        return false;
+      }
+      persistLocal(
+        {
+          ...data,
+          votes: data.votes.map((v) =>
+            v.id === voteId
+              ? {
+                ...v,
+                votedApartments: [...v.votedApartments, apartmentId],
+                options: v.options.map((opt) => (opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt)),
+              }
+              : v
+          ),
+        },
+        activeBuildingId
+      );
+      toast.success('Votre vote a bien été pris en compte !');
+      return true;
     },
     [data, serverConnected, activeBuildingId, persistLocal, toast]
   );
@@ -1225,6 +1398,48 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       persistLocal({ ...data, assemblyMinutes: [minutes, ...(data.assemblyMinutes || [])] }, activeBuildingId);
       toast.success(minutes.title);
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const updateAssemblyMinutes = useCallback(
+    async (minutes: AssemblyMinutes) => {
+      if (serverConnected) {
+        const res = await updateMinutesRemote(activeBuildingId, minutes);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          assemblyMinutes: (data.assemblyMinutes || []).map((m) => (m.id === minutes.id ? minutes : m)),
+        },
+        activeBuildingId
+      );
+      toast.success('Procès-verbal mis à jour');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const deleteAssemblyMinutes = useCallback(
+    async (pvId: string) => {
+      if (serverConnected) {
+        const res = await deleteMinutesRemote(activeBuildingId, pvId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          assemblyMinutes: (data.assemblyMinutes || []).filter((m) => m.id !== pvId),
+        },
+        activeBuildingId
+      );
+      toast.info('Procès-verbal supprimé');
     },
     [data, serverConnected, activeBuildingId, persistLocal, toast]
   );
@@ -1257,6 +1472,409 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       toast.success(vendor.name);
     },
     [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const updateVendor = useCallback(
+    async (vendor: Vendor) => {
+      if (serverConnected) {
+        const res = await updateVendorRemote(activeBuildingId, vendor);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        { ...data, vendors: data.vendors.map((v) => (v.id === vendor.id ? vendor : v)) },
+        activeBuildingId
+      );
+      toast.success('Prestataire mis à jour');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const deleteVendor = useCallback(
+    async (vendorId: string) => {
+      if (serverConnected) {
+        const res = await deleteVendorRemote(activeBuildingId, vendorId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        { ...data, vendors: data.vendors.filter((v) => v.id !== vendorId) },
+        activeBuildingId
+      );
+      toast.info('Prestataire supprimé');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const submitPaymentDeclaration = useCallback(
+    async (decl: Omit<PaymentDeclaration, 'id' | 'status' | 'submittedAt'>): Promise<boolean> => {
+      if (serverConnected) {
+        const res = await submitPaymentDeclarationRemote(activeBuildingId, decl);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur lors de la transmission');
+          return false;
+        }
+        if (res.data?.declaration && isBureau) {
+          persistLocal(
+            {
+              ...data,
+              paymentDeclarations: [res.data.declaration, ...(data.paymentDeclarations || [])],
+            },
+            activeBuildingId
+          );
+        }
+        toast.success('Preuve de paiement envoyée au Président !');
+        return true;
+      }
+
+      const newDecl: PaymentDeclaration = {
+        ...decl,
+        id: `decl-${Date.now()}`,
+        status: 'pending',
+        submittedAt: new Date().toISOString(),
+      };
+      persistLocal(
+        { ...data, paymentDeclarations: [newDecl, ...(data.paymentDeclarations || [])] },
+        activeBuildingId
+      );
+      toast.success('Preuve de paiement enregistrée !');
+      return true;
+    },
+    [data, serverConnected, activeBuildingId, isBureau, persistLocal, toast]
+  );
+
+  const approvePaymentDeclaration = useCallback(
+    async (declId: string): Promise<PaymentRecord | null> => {
+      if (serverConnected) {
+        const res = await approvePaymentDeclarationRemote(activeBuildingId, declId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur lors de la validation');
+          return null;
+        }
+        persistLocal(
+          {
+            ...data,
+            payments: res.data?.payment ? [res.data.payment, ...data.payments] : data.payments,
+            transactions: res.data?.transaction ? [res.data.transaction, ...data.transactions] : data.transactions,
+            specialCalls: res.data?.specialCalls || data.specialCalls || [],
+            paymentDeclarations:
+              res.data?.paymentDeclarations || (data.paymentDeclarations || []).filter((d) => d.id !== declId),
+          },
+          activeBuildingId
+        );
+        toast.success('Paiement validé et intégré en trésorerie !');
+        return res.data?.payment || null;
+      }
+
+      const decl = (data.paymentDeclarations || []).find((d) => d.id === declId);
+      if (!decl) return null;
+      const remainingDecls = (data.paymentDeclarations || []).filter((d) => d.id !== declId);
+
+      if (decl.specialCallId) {
+        const call = (data.specialCalls || []).find((c) => c.id === decl.specialCallId);
+        const seq = String(((call?.contributions || []).length || 0) + 1).padStart(3, '0');
+        const contrib: SpecialCallContribution = {
+          id: `spc-c-${Date.now()}`,
+          receiptNumber: `APP-${decl.specialCallId.slice(-4).toUpperCase()}-${seq}`,
+          apartmentId: decl.apartmentId,
+          apartmentNumber: decl.apartmentNumber,
+          residentName: decl.residentName || decl.apartmentNumber,
+          amountDZD: decl.amountDZD,
+          paymentDate: new Date().toISOString(),
+          paymentMethod: decl.paymentMethod,
+          collectedBy: user.fullName || data.building.syndicPresident,
+          notes: decl.reference ? `Réf: ${decl.reference}` : decl.notes,
+        };
+        const tx: Transaction = {
+          id: `tx-spcall-${contrib.id}`,
+          date: contrib.paymentDate.slice(0, 10),
+          type: 'recette',
+          fund: call?.fund || 'reserve',
+          category:
+            call?.fund === 'courant' ? 'Cotisations Copropriétaires' : 'Dotation Fonds de Réserve',
+          description: `Appel spécial "${call?.title || 'Projet AG'}" — ${decl.apartmentNumber} (${contrib.residentName})`,
+          amountDZD: decl.amountDZD,
+          paymentMethod: decl.paymentMethod,
+          referenceDoc: contrib.receiptNumber,
+        };
+        persistLocal(
+          {
+            ...data,
+            specialCalls: (data.specialCalls || []).map((c) =>
+              c.id === decl.specialCallId ? { ...c, contributions: [contrib, ...(c.contributions || [])] } : c
+            ),
+            transactions: [tx, ...data.transactions],
+            paymentDeclarations: remainingDecls,
+          },
+          activeBuildingId
+        );
+        toast.success('Contribution validée !');
+        return null;
+      }
+
+      const period = decl.month || String(new Date().getFullYear());
+      const prefix = `REC-${period}-`;
+      const maxSeq = data.payments.reduce((max, p) => {
+        if (p.receiptNumber.startsWith(prefix)) {
+          const n = parseInt(p.receiptNumber.slice(prefix.length), 10);
+          if (!isNaN(n) && n > max) return n;
+        }
+        return max;
+      }, 0);
+      const newPay: PaymentRecord = {
+        id: `pay-${period}-${Date.now()}`,
+        receiptNumber: `${prefix}${String(maxSeq + 1).padStart(3, '0')}`,
+        apartmentId: decl.apartmentId,
+        apartmentNumber: decl.apartmentNumber,
+        residentName: decl.residentName || decl.apartmentNumber,
+        month: period,
+        amountDZD: decl.amountDZD,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: decl.paymentMethod,
+        collectedBy: user.fullName || data.building.syndicPresident,
+        notes: decl.reference || decl.notes || 'Validé depuis déclaration BaridiMob/CCP',
+      };
+      const tx: Transaction = {
+        id: `tx-rec-${newPay.id}`,
+        date: newPay.paymentDate.slice(0, 10),
+        type: 'recette',
+        fund: 'courant',
+        category: 'Cotisations Copropriétaires',
+        description: `Cotisation ${period} - ${newPay.apartmentNumber} (${newPay.residentName})`,
+        amountDZD: newPay.amountDZD,
+        paymentMethod: newPay.paymentMethod,
+        referenceDoc: newPay.receiptNumber,
+        ...(decl.proofDataUrl
+          ? { attachmentDataUrl: decl.proofDataUrl, attachmentName: `Preuve_${newPay.apartmentNumber}.jpg` }
+          : {}),
+      };
+      persistLocal(
+        {
+          ...data,
+          payments: [newPay, ...data.payments],
+          transactions: [tx, ...data.transactions],
+          paymentDeclarations: remainingDecls,
+        },
+        activeBuildingId
+      );
+      toast.success(`Quittance ${newPay.receiptNumber} générée !`);
+      return newPay;
+    },
+    [data, serverConnected, activeBuildingId, user.fullName, persistLocal, toast]
+  );
+
+  const rejectPaymentDeclaration = useCallback(
+    async (declId: string) => {
+      if (serverConnected) {
+        const res = await deletePaymentDeclarationRemote(activeBuildingId, declId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          paymentDeclarations: (data.paymentDeclarations || []).filter((d) => d.id !== declId),
+        },
+        activeBuildingId
+      );
+      toast.info('Déclaration supprimée');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const addSpecialCall = useCallback(
+    async (call: SpecialCall) => {
+      if (serverConnected) {
+        const res = await addSpecialCallRemote(activeBuildingId, call);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal({ ...data, specialCalls: [call, ...(data.specialCalls || [])] }, activeBuildingId);
+      toast.success('Appel de fonds créé');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const updateSpecialCall = useCallback(
+    async (call: SpecialCall) => {
+      if (serverConnected) {
+        const res = await updateSpecialCallRemote(activeBuildingId, call);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          specialCalls: (data.specialCalls || []).map((c) => (c.id === call.id ? call : c)),
+        },
+        activeBuildingId
+      );
+      toast.success('Appel de fonds mis à jour');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const deleteSpecialCall = useCallback(
+    async (callId: string) => {
+      if (serverConnected) {
+        const res = await deleteSpecialCallRemote(activeBuildingId, callId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          specialCalls: (data.specialCalls || []).filter((c) => c.id !== callId),
+        },
+        activeBuildingId
+      );
+      toast.info('Appel de fonds supprimé');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const recordSpecialCallContribution = useCallback(
+    async (callId: string, contrib: SpecialCallContribution) => {
+      if (serverConnected) {
+        const res = await recordSpecialCallContribRemote(activeBuildingId, callId, contrib);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+        persistLocal(
+          {
+            ...data,
+            specialCalls: res.data?.specialCalls || data.specialCalls || [],
+            transactions: res.data?.transaction
+              ? [res.data.transaction, ...data.transactions]
+              : data.transactions,
+          },
+          activeBuildingId
+        );
+        toast.success('Participation encaissée !');
+        return;
+      }
+
+      const call = (data.specialCalls || []).find((c) => c.id === callId);
+      const tx: Transaction = {
+        id: `tx-spcall-${contrib.id}`,
+        date: contrib.paymentDate.slice(0, 10),
+        type: 'recette',
+        fund: call?.fund || 'reserve',
+        category:
+          call?.fund === 'courant' ? 'Cotisations Copropriétaires' : 'Dotation Fonds de Réserve',
+        description: `Appel spécial "${call?.title || 'Projet AG'}" — ${contrib.apartmentNumber} (${contrib.residentName})`,
+        amountDZD: contrib.amountDZD,
+        paymentMethod: contrib.paymentMethod,
+        referenceDoc: contrib.receiptNumber,
+      };
+      persistLocal(
+        {
+          ...data,
+          specialCalls: (data.specialCalls || []).map((c) =>
+            c.id === callId ? { ...c, contributions: [contrib, ...(c.contributions || [])] } : c
+          ),
+          transactions: [tx, ...data.transactions],
+        },
+        activeBuildingId
+      );
+      toast.success('Participation encaissée !');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const deleteSpecialCallContribution = useCallback(
+    async (callId: string, contribId: string) => {
+      if (serverConnected) {
+        const res = await deleteSpecialCallContribRemote(activeBuildingId, callId, contribId);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur');
+          return;
+        }
+        persistLocal(
+          {
+            ...data,
+            specialCalls: res.data?.specialCalls || data.specialCalls || [],
+            transactions: data.transactions.filter((t) => t.id !== `tx-spcall-${contribId}`),
+          },
+          activeBuildingId
+        );
+        toast.info('Participation annulée');
+        return;
+      }
+
+      persistLocal(
+        {
+          ...data,
+          specialCalls: (data.specialCalls || []).map((c) =>
+            c.id === callId
+              ? { ...c, contributions: (c.contributions || []).filter((ct) => ct.id !== contribId) }
+              : c
+          ),
+          transactions: data.transactions.filter((t) => t.id !== `tx-spcall-${contribId}`),
+        },
+        activeBuildingId
+      );
+      toast.info('Participation annulée');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const fetchMyApartmentByPin = useCallback(
+    async (apartmentId: string, pin: string): Promise<MyApartmentPrivateSummary | null> => {
+      if (serverConnected) {
+        const res = await fetchMyApartmentByPinRemote(activeBuildingId, apartmentId, pin.trim());
+        if (!res.ok || !res.data) {
+          toast.error(res.error || 'Code PIN incorrect.');
+          return null;
+        }
+        return res.data;
+      }
+
+      const apt = data.apartments.find((a) => a.id === apartmentId);
+      if (!apt || (apt.residentPin && apt.residentPin !== pin.trim())) {
+        toast.error('Code PIN incorrect.');
+        return null;
+      }
+      const aptPayments = data.payments.filter((p) => p.apartmentId === apartmentId);
+      const aptCalls = (data.specialCalls || []).map((c) => {
+        const contribs = (c.contributions || []).filter((ct) => ct.apartmentId === apartmentId);
+        return {
+          id: c.id,
+          title: c.title,
+          amountPerApartmentDZD: c.amountPerApartmentDZD,
+          dueDate: c.dueDate,
+          paidDZD: contribs.reduce((s, ct) => s + ct.amountDZD, 0),
+          contributions: contribs,
+        };
+      });
+      return {
+        apartment: {
+          id: apt.id,
+          number: apt.number,
+          floor: apt.floor,
+          type: apt.type,
+          occupancy: apt.occupancy,
+          residentName: apt.resident.name,
+        },
+        payments: aptPayments,
+        specialCalls: aptCalls,
+        pendingDeclarations: (data.paymentDeclarations || []).filter((d) => d.apartmentId === apartmentId),
+      };
+    },
+    [data, serverConnected, activeBuildingId, toast]
   );
 
   const updateApartment = useCallback(
@@ -1385,12 +2003,30 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updateBudgetPlan,
         uploadAttachment,
         addNotice,
+        updateNotice,
+        deleteNotice,
         addVote,
+        updateVote,
+        deleteVote,
         toggleVoteStatus,
         castVote,
+        residentCastVote,
         addAssemblyMinutes,
+        updateAssemblyMinutes,
+        deleteAssemblyMinutes,
         updateHouseRules,
         addVendor,
+        updateVendor,
+        deleteVendor,
+        submitPaymentDeclaration,
+        approvePaymentDeclaration,
+        rejectPaymentDeclaration,
+        addSpecialCall,
+        updateSpecialCall,
+        deleteSpecialCall,
+        recordSpecialCallContribution,
+        deleteSpecialCallContribution,
+        fetchMyApartmentByPin,
         updateApartment,
         updateBuilding,
         resetFinancials,

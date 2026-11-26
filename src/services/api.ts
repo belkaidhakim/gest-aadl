@@ -15,8 +15,11 @@ import {
   IncidentStatus,
   ManagedUser,
   Notice,
+  PaymentDeclaration,
   PaymentRecord,
   PreventiveTask,
+  SpecialCall,
+  SpecialCallContribution,
   Transaction,
   UserRole,
   Vendor,
@@ -362,6 +365,7 @@ export interface ResidentIncidentReportPayload {
   reportedBy: string;
   apartmentNumber?: string;
   initialMessage?: string;
+  photoUrl?: string;
 }
 
 export const fetchIncidentMessagesRemote = (buildingId: string, incidentId: string) =>
@@ -376,7 +380,7 @@ export const fetchIncidentMessagesRemote = (buildingId: string, incidentId: stri
 export const sendIncidentMessageRemote = (
   buildingId: string,
   incidentId: string,
-  payload: { text: string; senderName?: string; apartmentNumber?: string }
+  payload: { text: string; senderName?: string; apartmentNumber?: string; photoUrl?: string }
 ) =>
   apiRequest<{ ok: boolean; message: IncidentMessage; incident: Incident; editToken?: string }>(
     `/api/incidents/${encodeURIComponent(incidentId)}/messages?buildingId=${encodeURIComponent(buildingId)}`,
@@ -505,10 +509,38 @@ export const addNoticeRemote = (buildingId: string, notice: Notice) =>
     body: JSON.stringify({ notice }),
   });
 
+export const updateNoticeRemote = (buildingId: string, notice: Notice) =>
+  apiRequest<{ ok: boolean; notice: Notice }>(
+    `/api/notices/${encodeURIComponent(notice.id)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ notice }),
+    }
+  );
+
+export const deleteNoticeRemote = (buildingId: string, noticeId: string) =>
+  apiRequest(`/api/notices/${encodeURIComponent(noticeId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'DELETE',
+  });
+
 export const addVoteRemote = (buildingId: string, vote: AssemblyVote) =>
   apiRequest(`/api/votes?buildingId=${encodeURIComponent(buildingId)}`, {
     method: 'POST',
     body: JSON.stringify({ vote }),
+  });
+
+export const updateVoteRemote = (buildingId: string, vote: AssemblyVote) =>
+  apiRequest<{ ok: boolean; vote: AssemblyVote }>(
+    `/api/votes/${encodeURIComponent(vote.id)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ vote }),
+    }
+  );
+
+export const deleteVoteRemote = (buildingId: string, voteId: string) =>
+  apiRequest(`/api/votes/${encodeURIComponent(voteId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'DELETE',
   });
 
 export const toggleVoteRemote = (buildingId: string, voteId: string) =>
@@ -522,10 +554,39 @@ export const castVoteRemote = (buildingId: string, voteId: string, optionId: str
     body: JSON.stringify({ optionId, apartmentId }),
   });
 
+export const residentCastVoteRemote = (
+  buildingId: string,
+  voteId: string,
+  optionId: string,
+  apartmentId: string,
+  pin: string
+) =>
+  apiRequest<{ ok: boolean; vote: AssemblyVote }>(
+    `/api/votes/${encodeURIComponent(voteId)}/resident-cast?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ optionId, apartmentId, pin }),
+    }
+  );
+
 export const addMinutesRemote = (buildingId: string, minutes: AssemblyMinutes) =>
   apiRequest(`/api/minutes?buildingId=${encodeURIComponent(buildingId)}`, {
     method: 'POST',
     body: JSON.stringify({ minutes }),
+  });
+
+export const updateMinutesRemote = (buildingId: string, minutes: AssemblyMinutes) =>
+  apiRequest<{ ok: boolean; minutes: AssemblyMinutes }>(
+    `/api/minutes/${encodeURIComponent(minutes.id)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ minutes }),
+    }
+  );
+
+export const deleteMinutesRemote = (buildingId: string, pvId: string) =>
+  apiRequest(`/api/minutes/${encodeURIComponent(pvId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'DELETE',
   });
 
 export const updateHouseRulesRemote = (buildingId: string, houseRules: HouseRuleSection[]) =>
@@ -539,6 +600,125 @@ export const addVendorRemote = (buildingId: string, vendor: Vendor) =>
     method: 'POST',
     body: JSON.stringify({ vendor }),
   });
+
+export const updateVendorRemote = (buildingId: string, vendor: Vendor) =>
+  apiRequest<{ ok: boolean; vendor: Vendor }>(
+    `/api/vendors/${encodeURIComponent(vendor.id)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ vendor }),
+    }
+  );
+
+export const deleteVendorRemote = (buildingId: string, vendorId: string) =>
+  apiRequest(`/api/vendors/${encodeURIComponent(vendorId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'DELETE',
+  });
+
+export const submitPaymentDeclarationRemote = (
+  buildingId: string,
+  declaration: Omit<PaymentDeclaration, 'id' | 'status' | 'submittedAt'>
+) =>
+  apiRequest<{ ok: boolean; declaration: PaymentDeclaration }>(
+    `/api/payment-declarations?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ declaration }),
+    }
+  );
+
+export const approvePaymentDeclarationRemote = (buildingId: string, declId: string) =>
+  apiRequest<{
+    ok: boolean;
+    payment?: PaymentRecord;
+    transaction?: Transaction;
+    specialCalls?: SpecialCall[];
+    paymentDeclarations: PaymentDeclaration[];
+  }>(`/api/payment-declarations/${encodeURIComponent(declId)}/approve?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'POST',
+  });
+
+export const deletePaymentDeclarationRemote = (buildingId: string, declId: string) =>
+  apiRequest<{ ok: boolean; paymentDeclarations: PaymentDeclaration[] }>(
+    `/api/payment-declarations/${encodeURIComponent(declId)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+export const addSpecialCallRemote = (buildingId: string, specialCall: SpecialCall) =>
+  apiRequest<{ ok: boolean; specialCall: SpecialCall }>(
+    `/api/special-calls?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ specialCall }),
+    }
+  );
+
+export const updateSpecialCallRemote = (buildingId: string, specialCall: SpecialCall) =>
+  apiRequest<{ ok: boolean; specialCall: SpecialCall }>(
+    `/api/special-calls/${encodeURIComponent(specialCall.id)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ specialCall }),
+    }
+  );
+
+export const deleteSpecialCallRemote = (buildingId: string, callId: string) =>
+  apiRequest(`/api/special-calls/${encodeURIComponent(callId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'DELETE',
+  });
+
+export const recordSpecialCallContribRemote = (
+  buildingId: string,
+  callId: string,
+  contribution: SpecialCallContribution
+) =>
+  apiRequest<{ ok: boolean; specialCalls: SpecialCall[]; transaction: Transaction }>(
+    `/api/special-calls/${encodeURIComponent(callId)}/contribute?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ contribution }),
+    }
+  );
+
+export const deleteSpecialCallContribRemote = (buildingId: string, callId: string, contribId: string) =>
+  apiRequest<{ ok: boolean; specialCalls: SpecialCall[] }>(
+    `/api/special-calls/${encodeURIComponent(callId)}/contributions/${encodeURIComponent(contribId)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+export interface MyApartmentPrivateSummary {
+  apartment: {
+    id: string;
+    number: string;
+    floor: number;
+    type: Apartment['type'];
+    occupancy: Apartment['occupancy'];
+    residentName: string;
+  };
+  payments: PaymentRecord[];
+  specialCalls: Array<{
+    id: string;
+    title: string;
+    amountPerApartmentDZD: number;
+    dueDate: string;
+    paidDZD: number;
+    contributions: SpecialCallContribution[];
+  }>;
+  pendingDeclarations: PaymentDeclaration[];
+}
+
+export const fetchMyApartmentByPinRemote = (buildingId: string, apartmentId: string, pin: string) =>
+  apiRequest<{ ok: boolean } & MyApartmentPrivateSummary>(
+    `/api/resident/my-apartment?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ apartmentId, pin }),
+    }
+  );
 
 export const fetchAuditLogsRemote = async (buildingId: string, limit = 150): Promise<AuditLogEntry[]> => {
   const res = await apiRequest<{ logs: AuditLogEntry[] }>(

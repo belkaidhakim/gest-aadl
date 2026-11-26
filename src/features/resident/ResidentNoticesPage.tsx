@@ -12,6 +12,7 @@ import {
   Calendar,
   Award,
   ChevronRight,
+  KeyRound,
 } from 'lucide-react';
 import { AssemblyMinutes, Notice } from '../../types';
 import { formatDateFr } from '../../utils/helpers';
@@ -32,12 +33,15 @@ export const ResidentNoticesPage: React.FC<ResidentNoticesPageProps> = ({
   onPrintHouseRules,
 }) => {
   const { lang, isRtl, t } = useI18n();
-  const { data } = useAppStore();
+  const { data, residentCastVote } = useAppStore();
 
   const [subTab, setSubTab] = useState<'notices' | 'assembly' | 'rules'>('notices');
   const [typeFilter, setTypeFilter] = useState<'all' | Notice['type']>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+  const [votingAptId, setVotingAptId] = useState<string>(data.apartments[0]?.id || '');
+  const [votingPin, setVotingPin] = useState<string>('');
+  const [castingVoteId, setCastingVoteId] = useState<string | null>(null);
 
   const filteredNotices = useMemo(() => {
     return [...data.notices]
@@ -353,6 +357,71 @@ export const ResidentNoticesPage: React.FC<ResidentNoticesPageProps> = ({
                           );
                         })}
                       </div>
+
+                      {!isClosed && (
+                        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5 text-xs">
+                          <div className="flex items-center gap-1.5 font-bold text-emerald-700 dark:text-emerald-300">
+                            <KeyRound className="w-3.5 h-3.5" />
+                            <span>
+                              {lang === 'ar'
+                                ? 'التصويت الإلكتروني المباشر (بالرمز السري للشقة)'
+                                : 'Voter en ligne avec votre Code PIN'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-5 gap-2">
+                            <select
+                              value={votingAptId}
+                              onChange={(e) => setVotingAptId(e.target.value)}
+                              className="col-span-3 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
+                            >
+                              {data.apartments.map((apt) => (
+                                <option key={apt.id} value={apt.id}>
+                                  {apt.number} {vote.votedApartments.includes(apt.id) ? '✓ (A voté)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              type="password"
+                              inputMode="numeric"
+                              maxLength={4}
+                              value={votingPin}
+                              onChange={(e) => setVotingPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                              placeholder="PIN ••••"
+                              className="col-span-2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-center tracking-widest"
+                            />
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {vote.options.map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                disabled={
+                                  castingVoteId === vote.id ||
+                                  votingPin.length < 4 ||
+                                  vote.votedApartments.includes(votingAptId)
+                                }
+                                onClick={async () => {
+                                  setCastingVoteId(vote.id);
+                                  try {
+                                    const ok = await residentCastVote(
+                                      vote.id,
+                                      opt.id,
+                                      votingAptId,
+                                      votingPin
+                                    );
+                                    if (ok) setVotingPin('');
+                                  } finally {
+                                    setCastingVoteId(null);
+                                  }
+                                }}
+                                className="px-2 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-600 hover:text-white text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 disabled:opacity-45 transition-colors cursor-pointer truncate"
+                              >
+                                {opt.label.split(' ')[0]}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

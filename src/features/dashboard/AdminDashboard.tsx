@@ -25,8 +25,10 @@ import {
   X,
   BellRing,
   MessageSquare,
+  QrCode,
 } from 'lucide-react';
 import { PaymentRecord } from '../../types';
+import { HallQrPosterModal } from '../../components/HallQrPosterModal';
 import {
   formatDZD,
   formatDateFr,
@@ -66,6 +68,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [reminderFilter, setReminderFilter] = useState<'unpaid_only' | 'all_due'>('all_due');
   const [isSummaryPdfOpen, setIsSummaryPdfOpen] = useState(false);
+  const [isHallQrOpen, setIsHallQrOpen] = useState(false);
   const [isReserveTargetOpen, setIsReserveTargetOpen] = useState(false);
   const [reserveTargetInput, setReserveTargetInput] = useState<number>(data.building.reserveTargetDZD || 20000);
   const [savingTarget, setSavingTarget] = useState(false);
@@ -320,7 +323,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <>
-      <div className={`space-y-5 ${isSummaryPdfOpen ? 'no-print' : ''}`}>
+      <div className={`space-y-5 ${isSummaryPdfOpen || isHallQrOpen ? 'no-print' : ''}`}>
         {/* Hero Banner */}
         <div className="relative overflow-hidden rounded-2xl bg-slate-900 border border-slate-800 text-white shadow-sm">
           <div className="absolute inset-0 z-0">
@@ -402,7 +405,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-row lg:flex-col gap-2 shrink-0">
+            <div className="flex flex-row flex-wrap lg:flex-col gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsSummaryPdfOpen(true)}
@@ -410,6 +413,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 <FileText className="w-4 h-4" />
                 <span>{lang === 'ar' ? 'تصدير التقرير PDF' : 'Exporter Bilan PDF'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsHallQrOpen(true)}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-emerald-200 bg-emerald-950/80 hover:bg-emerald-900/80 rounded-xl border border-emerald-700/70 transition-colors cursor-pointer"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>{lang === 'ar' ? 'ملصق QR للبهو' : 'Affiche QR Hall'}</span>
               </button>
               {canManageMaintenance(role) && (
                 <button
@@ -1244,6 +1255,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {isHallQrOpen && (
+        <HallQrPosterModal building={data.building} onClose={() => setIsHallQrOpen(false)} />
       )}
     </>
   );

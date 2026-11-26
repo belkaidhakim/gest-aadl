@@ -13,20 +13,25 @@ import {
   Droplet,
   Layers,
   Zap,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { Vendor } from '../../types';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { canManageGovernance } from '../../utils/permissions';
 import { useToast } from '../../components/ui/ToastProvider';
+import { useConfirm } from '../../components/ui/ConfirmDialog';
 
 export const DirectoryPage: React.FC = () => {
   const { lang, t } = useI18n();
-  const { data, role, addVendor } = useAppStore();
+  const { data, role, addVendor, updateVendor, deleteVendor } = useAppStore();
   const toast = useToast();
+  const { confirm } = useConfirm();
   const canManage = canManageGovernance(role);
 
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [newVendor, setNewVendor] = useState({
     name: '',
@@ -37,6 +42,34 @@ export const DirectoryPage: React.FC = () => {
     is24hEmergency: false,
     notes: '',
   });
+
+  const handleOpenCreate = () => {
+    setEditingVendor(null);
+    setNewVendor({
+      name: '',
+      specialty: 'Plomberie & Bâche à Eau',
+      phone: '',
+      secondaryPhone: '',
+      address: '',
+      is24hEmergency: false,
+      notes: '',
+    });
+    setIsNewModalOpen(true);
+  };
+
+  const handleOpenEdit = (vendor: Vendor) => {
+    setEditingVendor(vendor);
+    setNewVendor({
+      name: vendor.name,
+      specialty: vendor.specialty,
+      phone: vendor.phone,
+      secondaryPhone: vendor.secondaryPhone || '',
+      address: vendor.address || '',
+      is24hEmergency: Boolean(vendor.is24hEmergency),
+      notes: vendor.notes || '',
+    });
+    setIsNewModalOpen(true);
+  };
 
   const handleCopyPhone = (vendorId: string, phone: string) => {
     navigator.clipboard.writeText(phone);
@@ -49,8 +82,8 @@ export const DirectoryPage: React.FC = () => {
     e.preventDefault();
     if (!newVendor.name.trim() || !newVendor.phone.trim()) return;
 
-    await addVendor({
-      id: `ven-${Date.now()}`,
+    const payload: Vendor = {
+      id: editingVendor?.id || `ven-${Date.now()}`,
       name: newVendor.name.trim(),
       specialty: newVendor.specialty,
       phone: newVendor.phone.trim(),
@@ -58,17 +91,15 @@ export const DirectoryPage: React.FC = () => {
       address: newVendor.address.trim() || undefined,
       is24hEmergency: newVendor.is24hEmergency,
       notes: newVendor.notes.trim() || undefined,
-    });
+    };
+
+    if (editingVendor) {
+      await updateVendor(payload);
+    } else {
+      await addVendor(payload);
+    }
     setIsNewModalOpen(false);
-    setNewVendor({
-      name: '',
-      specialty: 'Plomberie & Bâche à Eau',
-      phone: '',
-      secondaryPhone: '',
-      address: '',
-      is24hEmergency: false,
-      notes: '',
-    });
+    setEditingVendor(null);
   };
 
   const getVendorIcon = (specialty: string) => {
@@ -99,7 +130,7 @@ export const DirectoryPage: React.FC = () => {
 
           {canManage && (
             <button
-              onClick={() => setIsNewModalOpen(true)}
+              onClick={handleOpenCreate}
               className="flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -195,12 +226,40 @@ export const DirectoryPage: React.FC = () => {
                     <span className="text-xs text-slate-500 dark:text-slate-400 block truncate">{v.specialty}</span>
                   </div>
                 </div>
-                {v.is24hEmergency && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50 shrink-0">
-                    <ShieldAlert className="w-3 h-3" />
-                    24h/7j
-                  </span>
-                )}
+                <div className="flex items-center gap-1 shrink-0">
+                  {v.is24hEmergency && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50">
+                      <ShieldAlert className="w-3 h-3" />
+                      24h/7j
+                    </span>
+                  )}
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => handleOpenEdit(v)}
+                        title={t('edit')}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: lang === 'ar' ? 'حذف المتعامل' : 'Supprimer ce prestataire',
+                            message: `Voulez-vous supprimer « ${v.name} » de l'annuaire ?`,
+                            confirmLabel: lang === 'ar' ? 'حذف' : 'Supprimer',
+                            danger: true,
+                          });
+                          if (ok) await deleteVendor(v.id);
+                        }}
+                        title={lang === 'ar' ? 'حذف' : 'Supprimer'}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {v.address && (
@@ -265,9 +324,19 @@ export const DirectoryPage: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                {t('addVendorBtn')}
+                {editingVendor
+                  ? lang === 'ar'
+                    ? 'تعديل بيانات المتعامل'
+                    : 'Modifier le prestataire'
+                  : t('addVendorBtn')}
               </h3>
-              <button onClick={() => setIsNewModalOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button
+                onClick={() => {
+                  setIsNewModalOpen(false);
+                  setEditingVendor(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>

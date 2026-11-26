@@ -11,9 +11,12 @@ import {
   Phone,
   Send,
   MessageSquare,
+  Camera,
+  Trash2,
 } from 'lucide-react';
 import { Apartment, Incident, IncidentCategory, IncidentPriority } from '../../types';
 import { ResidentIncidentReportPayload } from '../../services/api';
+import { compressImageToDataUrl } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import {
   loadSavedResidentIdentity,
@@ -50,7 +53,21 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
   const [description, setDescription] = useState<string>('');
   const [apartmentNumber, setApartmentNumber] = useState<string>(savedIdentity.apartmentNumber);
   const [reporterName, setReporterName] = useState<string>(savedIdentity.name);
+  const [photoUrl, setPhotoUrl] = useState<string>('');
+  const [compressingPhoto, setCompressingPhoto] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCompressingPhoto(true);
+    try {
+      const compressed = await compressImageToDataUrl(file, 960, 0.72);
+      setPhotoUrl(compressed);
+    } finally {
+      setCompressingPhoto(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -134,6 +151,7 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
         description: description.trim(),
         reportedBy,
         apartmentNumber: apartmentNumber || undefined,
+        photoUrl: photoUrl || undefined,
       });
       if (created) {
         onClose();
@@ -368,6 +386,50 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
               }
               className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
+          </div>
+
+          {/* Photo Attachment (Auto-compressed on phone) */}
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+              {lang === 'ar' ? 'صورة العطل (اختياري — من الهاتف مباشرة)' : 'Photo du constat (optionnel — appareil photo)'}
+            </label>
+            {photoUrl ? (
+              <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30">
+                <div className="flex items-center gap-2.5">
+                  <img src={photoUrl} alt="Constat" className="w-12 h-12 rounded-lg object-cover border border-emerald-200" />
+                  <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200">
+                    {lang === 'ar' ? 'تم إرفاق الصورة وضغطها' : 'Photo jointe et optimisée'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPhotoUrl('')}
+                  className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:border-emerald-500 text-slate-600 dark:text-slate-300 cursor-pointer">
+                <Camera className="w-4 h-4 text-emerald-600" />
+                <span>
+                  {compressingPhoto
+                    ? lang === 'ar'
+                      ? 'جاري ضغط الصورة...'
+                      : 'Compression en cours...'
+                    : lang === 'ar'
+                    ? 'التقاط أو إرفاق صورة للعطل'
+                    : 'Prendre / Joindre une photo de la panne'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handlePhotoChange}
+                  className="hidden"
+                />
+              </label>
+            )}
           </div>
 
           {/* Direct Chat Callout */}

@@ -384,6 +384,17 @@ export const MaintenancePage: React.FC = () => {
                     </p>
                   )}
 
+                  {inc.photoUrl && (
+                    <div>
+                      <img
+                        src={inc.photoUrl}
+                        alt={inc.title}
+                        onClick={() => setChatIncident(inc)}
+                        className="max-h-40 rounded-xl object-cover border border-slate-200 dark:border-slate-700 cursor-pointer"
+                      />
+                    </div>
+                  )}
+
                   {lastMsg && (
                     <button
                       type="button"

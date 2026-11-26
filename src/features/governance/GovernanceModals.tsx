@@ -4,11 +4,12 @@ import { Apartment, AssemblyMinutes, AssemblyVote, Notice } from '../../types';
 import { useI18n } from '../../i18n';
 
 interface NewNoticeModalProps {
+  initialNotice?: Notice | null;
   onClose: () => void;
   onSubmit: (notice: Notice) => Promise<void> | void;
 }
 
-export const NewNoticeModal: React.FC<NewNoticeModalProps> = ({ onClose, onSubmit }) => {
+export const NewNoticeModal: React.FC<NewNoticeModalProps> = ({ initialNotice, onClose, onSubmit }) => {
   const { lang, t } = useI18n();
   const [form, setForm] = useState<{
     title: string;
@@ -17,22 +18,23 @@ export const NewNoticeModal: React.FC<NewNoticeModalProps> = ({ onClose, onSubmi
     targetAudience: string;
     isPinned: boolean;
   }>({
-    title: '',
-    type: 'info',
-    message: '',
-    targetAudience: lang === 'ar' ? 'جميع السكان' : 'Tous les résidents',
-    isPinned: true,
+    title: initialNotice?.title || '',
+    type: initialNotice?.type || 'info',
+    message: initialNotice?.message || '',
+    targetAudience:
+      initialNotice?.targetAudience || (lang === 'ar' ? 'جميع السكان' : 'Tous les résidents'),
+    isPinned: initialNotice ? initialNotice.isPinned : true,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim() || !form.message.trim()) return;
     await onSubmit({
-      id: `not-${Date.now()}`,
+      id: initialNotice?.id || `not-${Date.now()}`,
       title: form.title.trim(),
       type: form.type,
-      date: new Date().toISOString().slice(0, 10),
-      author: lang === 'ar' ? 'مكتب نقابة الملاك' : 'Le Bureau du Syndic',
+      date: initialNotice?.date || new Date().toISOString().slice(0, 10),
+      author: initialNotice?.author || (lang === 'ar' ? 'مكتب نقابة الملاك' : 'Le Bureau du Syndic'),
       message: form.message.trim(),
       isPinned: form.isPinned,
       targetAudience: form.targetAudience.trim(),
@@ -46,7 +48,13 @@ export const NewNoticeModal: React.FC<NewNoticeModalProps> = ({ onClose, onSubmi
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Megaphone className="w-5 h-5 text-emerald-600" />
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">{t('newNoticeBtn')}</h3>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              {initialNotice
+                ? lang === 'ar'
+                  ? 'تعديل الإعلان'
+                  : "Modifier l'avis"
+                : t('newNoticeBtn')}
+            </h3>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">
             <X className="w-5 h-5" />
@@ -140,42 +148,62 @@ export const NewNoticeModal: React.FC<NewNoticeModalProps> = ({ onClose, onSubmi
 
 interface NewVoteModalProps {
   eligibleCount: number;
+  initialVote?: AssemblyVote | null;
   onClose: () => void;
   onSubmit: (vote: AssemblyVote) => Promise<void> | void;
 }
 
 export const NewVoteModal: React.FC<NewVoteModalProps> = ({
   eligibleCount,
+  initialVote,
   onClose,
   onSubmit,
 }) => {
   const { lang, t } = useI18n();
   const [form, setForm] = useState({
-    title: '',
-    description: '',
-    endDate: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
-    opt1: lang === 'ar' ? 'موافق' : 'Pour (Favorable au projet)',
-    opt2: lang === 'ar' ? 'معارض' : 'Contre (Défavorable)',
-    opt3: lang === 'ar' ? 'ممتنع عن التصويت' : 'Abstention / Besoin de précisions',
+    title: initialVote?.title || '',
+    description: initialVote?.description || '',
+    endDate:
+      initialVote?.endDate || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+    opt1:
+      initialVote?.options[0]?.label ||
+      (lang === 'ar' ? 'موافق' : 'Pour (Favorable au projet)'),
+    opt2:
+      initialVote?.options[1]?.label || (lang === 'ar' ? 'معارض' : 'Contre (Défavorable)'),
+    opt3:
+      initialVote?.options[2]?.label ||
+      (lang === 'ar' ? 'ممتنع عن التصويت' : 'Abstention / Besoin de précisions'),
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) return;
     await onSubmit({
-      id: `vote-${Date.now()}`,
+      id: initialVote?.id || `vote-${Date.now()}`,
       title: form.title.trim(),
       description: form.description.trim(),
-      dateCreated: new Date().toISOString().slice(0, 10),
+      dateCreated: initialVote?.dateCreated || new Date().toISOString().slice(0, 10),
       endDate: form.endDate,
-      status: 'active',
+      status: initialVote?.status || 'active',
       options: [
-        { id: 'opt-1', label: form.opt1.trim() || 'Pour', votes: 0 },
-        { id: 'opt-2', label: form.opt2.trim() || 'Contre', votes: 0 },
-        { id: 'opt-3', label: form.opt3.trim() || 'Abstention', votes: 0 },
+        {
+          id: initialVote?.options[0]?.id || 'opt-1',
+          label: form.opt1.trim() || 'Pour',
+          votes: initialVote?.options[0]?.votes ?? 0,
+        },
+        {
+          id: initialVote?.options[1]?.id || 'opt-2',
+          label: form.opt2.trim() || 'Contre',
+          votes: initialVote?.options[1]?.votes ?? 0,
+        },
+        {
+          id: initialVote?.options[2]?.id || 'opt-3',
+          label: form.opt3.trim() || 'Abstention',
+          votes: initialVote?.options[2]?.votes ?? 0,
+        },
       ],
-      totalEligibleApartments: eligibleCount,
-      votedApartments: [],
+      totalEligibleApartments: initialVote?.totalEligibleApartments || eligibleCount,
+      votedApartments: initialVote?.votedApartments || [],
     });
     onClose();
   };
@@ -186,7 +214,13 @@ export const NewVoteModal: React.FC<NewVoteModalProps> = ({
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Vote className="w-5 h-5 text-emerald-600" />
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">{t('newVoteBtn')}</h3>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              {initialVote
+                ? lang === 'ar'
+                  ? 'تعديل التصويت'
+                  : 'Modifier la consultation'
+                : t('newVoteBtn')}
+            </h3>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">
             <X className="w-5 h-5" />
@@ -275,6 +309,7 @@ interface NewMinutesModalProps {
   apartments: Apartment[];
   defaultPresident: string;
   defaultSecretary: string;
+  initialMinutes?: AssemblyMinutes | null;
   onClose: () => void;
   onSubmit: (minutes: AssemblyMinutes) => Promise<void> | void;
 }
@@ -284,28 +319,40 @@ export const NewMinutesModal: React.FC<NewMinutesModalProps> = ({
   apartments,
   defaultPresident,
   defaultSecretary,
+  initialMinutes,
   onClose,
   onSubmit,
 }) => {
   const { lang, t } = useI18n();
   const [form, setForm] = useState({
-    title: lang === 'ar' ? 'الجمعية العامة العادية' : 'Assemblée Générale Ordinaire',
-    type: 'ordinaire' as 'ordinaire' | 'extraordinaire',
-    date: new Date().toISOString().slice(0, 10),
-    time: '18:30',
-    location: lang === 'ar' ? `بهو ${buildingNumber}` : `Hall d'entrée du ${buildingNumber}`,
-    agendaText:
-      lang === 'ar'
-        ? 'الحصيلة المالية السنوية\nالتصويت على الميزانية واشتراكات الملاك\nالنقاط التقنية (المصاعد، خزان المياه، النظافة)'
-        : 'Bilan financier annuel\nVote du budget prévisionnel et cotisations\nPoints techniques (ascenseurs, surpresseur, propreté)',
-    decisionsText:
-      lang === 'ar'
-        ? 'المصادقة على الحصيلة المالية بأغلبية الحضور.'
-        : 'Validation du bilan financier à la majorité des présents.',
-    presentApartmentIds: apartments.filter((a) => a.occupancy !== 'vacant').slice(0, 15).map((a) => a.id),
-    presidentName: defaultPresident,
-    secretaryName: defaultSecretary,
-    notes: '',
+    title:
+      initialMinutes?.title ||
+      (lang === 'ar' ? 'الجمعية العامة العادية' : 'Assemblée Générale Ordinaire'),
+    type: (initialMinutes?.type || 'ordinaire') as 'ordinaire' | 'extraordinaire',
+    date: initialMinutes?.date || new Date().toISOString().slice(0, 10),
+    time: initialMinutes?.time || '18:30',
+    location:
+      initialMinutes?.location ||
+      (lang === 'ar' ? `بهو ${buildingNumber}` : `Hall d'entrée du ${buildingNumber}`),
+    agendaText: initialMinutes
+      ? initialMinutes.agenda.join('\n')
+      : lang === 'ar'
+      ? 'الحصيلة المالية السنوية\nالتصويت على الميزانية واشتراكات الملاك\nالنقاط التقنية (المصاعد، خزان المياه، النظافة)'
+      : 'Bilan financier annuel\nVote du budget prévisionnel et cotisations\nPoints techniques (ascenseurs, surpresseur, propreté)',
+    decisionsText: initialMinutes
+      ? initialMinutes.decisions.join('\n')
+      : lang === 'ar'
+      ? 'المصادقة على الحصيلة المالية بأغلبية الحضور.'
+      : 'Validation du bilan financier à la majorité des présents.',
+    presentApartmentIds:
+      initialMinutes?.presentApartmentIds ||
+      apartments
+        .filter((a) => a.occupancy !== 'vacant')
+        .slice(0, 15)
+        .map((a) => a.id),
+    presidentName: initialMinutes?.presidentName || defaultPresident,
+    secretaryName: initialMinutes?.secretaryName || defaultSecretary,
+    notes: initialMinutes?.notes || '',
   });
 
   const togglePresent = (aptId: string) => {
@@ -321,7 +368,7 @@ export const NewMinutesModal: React.FC<NewMinutesModalProps> = ({
     e.preventDefault();
     if (!form.title.trim()) return;
     await onSubmit({
-      id: `pv-${Date.now()}`,
+      id: initialMinutes?.id || `pv-${Date.now()}`,
       title: form.title.trim(),
       type: form.type,
       date: form.date,
@@ -344,7 +391,13 @@ export const NewMinutesModal: React.FC<NewMinutesModalProps> = ({
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-emerald-600" />
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              {lang === 'ar' ? 'محضر جمعية عامة جديد' : 'Nouveau Procès-Verbal AG'}
+              {initialMinutes
+                ? lang === 'ar'
+                  ? 'تعديل محضر الجمعية العامة'
+                  : 'Modifier le Procès-Verbal AG'
+                : lang === 'ar'
+                ? 'محضر جمعية عامة جديد'
+                : 'Nouveau Procès-Verbal AG'}
             </h3>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">

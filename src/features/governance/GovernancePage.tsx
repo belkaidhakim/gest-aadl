@@ -14,13 +14,18 @@ import {
   Users,
   Edit3,
   Check,
+  Pencil,
+  Trash2,
+  Share2,
 } from 'lucide-react';
-import { AssemblyMinutes, HouseRuleSection, Notice } from '../../types';
-import { formatDateFr } from '../../utils/helpers';
+import { AssemblyMinutes, AssemblyVote, HouseRuleSection, Notice } from '../../types';
+import { formatDateFr, generateNoticeWhatsAppText } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { canManageGovernance } from '../../utils/permissions';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { useConfirm } from '../../components/ui/ConfirmDialog';
+import { useToast } from '../../components/ui/ToastProvider';
 import { NewMinutesModal, NewNoticeModal, NewVoteModal } from './GovernanceModals';
 
 interface GovernancePageProps {
@@ -35,25 +40,43 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
   onPrintHouseRules,
 }) => {
   const { lang, t } = useI18n();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const {
     data,
     role,
     addNotice,
+    updateNotice,
+    deleteNotice,
     addVote,
+    updateVote,
+    deleteVote,
     toggleVoteStatus,
     castVote,
     addAssemblyMinutes,
+    updateAssemblyMinutes,
+    deleteAssemblyMinutes,
     updateHouseRules,
   } = useAppStore();
 
   const canManage = canManageGovernance(role);
   const [subTab, setSubTab] = useState<'notices' | 'minutes' | 'rules'>('notices');
   const [isNewNoticeModal, setIsNewNoticeModal] = useState(false);
+  const [editingNotice, setEditingNotice] = useState<Notice | null>(null);
   const [isNewVoteModal, setIsNewVoteModal] = useState(false);
+  const [editingVote, setEditingVote] = useState<AssemblyVote | null>(null);
   const [isNewMinutesModal, setIsNewMinutesModal] = useState(false);
+  const [editingMinutes, setEditingMinutes] = useState<AssemblyMinutes | null>(null);
   const [isEditingRules, setIsEditingRules] = useState(false);
   const [rulesDraft, setRulesDraft] = useState<HouseRuleSection[]>(data.houseRules || []);
   const [selectedVotingApt, setSelectedVotingApt] = useState<string>(data.apartments[0]?.id || '');
+
+  const handleShareNoticeWhatsApp = (notice: Notice) => {
+    const text = generateNoticeWhatsAppText(notice, data.building, lang);
+    navigator.clipboard.writeText(text).catch(() => {});
+    toast.success(lang === 'ar' ? 'تم نسخ نص الإعلان لواتساب' : 'Avis copié & prêt pour WhatsApp');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+  };
 
   const assemblyMinutes = data.assemblyMinutes || [];
   const houseRules = data.houseRules || [];
@@ -155,14 +178,20 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
             {canManage && subTab === 'notices' && (
               <>
                 <button
-                  onClick={() => setIsNewVoteModal(true)}
+                  onClick={() => {
+                    setEditingVote(null);
+                    setIsNewVoteModal(true);
+                  }}
                   className="px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center gap-1.5 cursor-pointer"
                 >
                   <Vote className="w-3.5 h-3.5" />
                   <span>{t('newVoteBtn')}</span>
                 </button>
                 <button
-                  onClick={() => setIsNewNoticeModal(true)}
+                  onClick={() => {
+                    setEditingNotice(null);
+                    setIsNewNoticeModal(true);
+                  }}
                   className="px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
@@ -173,7 +202,10 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
 
             {canManage && subTab === 'minutes' && (
               <button
-                onClick={() => setIsNewMinutesModal(true)}
+                onClick={() => {
+                  setEditingMinutes(null);
+                  setIsNewMinutesModal(true);
+                }}
                 className="px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
@@ -211,13 +243,63 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
                       <h3 className="text-base font-bold text-slate-900 dark:text-white">{notice.title}</h3>
                     </div>
 
-                    <button
-                      onClick={() => onPrintNotice(notice)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>{t('printA4')}</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        onClick={() => handleShareNoticeWhatsApp(notice)}
+                        title="Partager sur le groupe WhatsApp"
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 rounded-lg border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>WhatsApp</span>
+                      </button>
+                      <button
+                        onClick={() => onPrintNotice(notice)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>{t('printA4')}</span>
+                      </button>
+                      {canManage && (
+                        <>
+                          <button
+                            onClick={() => updateNotice({ ...notice, isPinned: !notice.isPinned })}
+                            title={notice.isPinned ? 'Désépingler' : 'Épingler'}
+                            className={`p-1.5 rounded-lg border cursor-pointer ${
+                              notice.isPinned
+                                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 border-emerald-200 dark:border-emerald-800'
+                                : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 hover:text-emerald-600'
+                            }`}
+                          >
+                            <Pin className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingNotice(notice);
+                              setIsNewNoticeModal(true);
+                            }}
+                            title={t('edit')}
+                            className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: lang === 'ar' ? 'حذف الإعلان' : "Supprimer l'avis",
+                                message: `Voulez-vous vraiment supprimer l'avis « ${notice.title} » ?`,
+                                confirmLabel: lang === 'ar' ? 'حذف' : 'Supprimer',
+                                danger: true,
+                              });
+                              if (ok) await deleteNotice(notice.id);
+                            }}
+                            title={lang === 'ar' ? 'حذف' : 'Supprimer'}
+                            className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
@@ -333,21 +415,48 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
                         <span className="text-[11px] text-slate-400">
                           {totalCast} / {vote.totalEligibleApartments}
                         </span>
-                        <button
-                          onClick={() => toggleVoteStatus(vote.id)}
-                          className="text-[11px] font-semibold text-slate-500 hover:text-emerald-600 flex items-center gap-1 cursor-pointer"
-                        >
-                          {isClosed ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                          <span>
-                            {isClosed
-                              ? lang === 'ar'
-                                ? 'إعادة فتح'
-                                : 'Rouvrir'
-                              : lang === 'ar'
-                              ? 'إغلاق التصويت'
-                              : 'Clôturer'}
-                          </span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleVoteStatus(vote.id)}
+                            className="text-[11px] font-semibold text-slate-500 hover:text-emerald-600 flex items-center gap-1 cursor-pointer"
+                          >
+                            {isClosed ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                            <span>
+                              {isClosed
+                                ? lang === 'ar'
+                                  ? 'إعادة فتح'
+                                  : 'Rouvrir'
+                                : lang === 'ar'
+                                ? 'إغلاق التصويت'
+                                : 'Clôturer'}
+                            </span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingVote(vote);
+                              setIsNewVoteModal(true);
+                            }}
+                            title={t('edit')}
+                            className="p-1 rounded text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: lang === 'ar' ? 'حذف التصويت' : 'Supprimer la consultation',
+                                message: `Supprimer définitivement le vote « ${vote.title} » ?`,
+                                confirmLabel: lang === 'ar' ? 'حذف' : 'Supprimer',
+                                danger: true,
+                              });
+                              if (ok) await deleteVote(vote.id);
+                            }}
+                            title={lang === 'ar' ? 'حذف' : 'Supprimer'}
+                            className="p-1 rounded text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -390,13 +499,44 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
                       <h3 className="text-base font-bold text-slate-900 dark:text-white">{pv.title}</h3>
                     </div>
 
-                    <button
-                      onClick={() => onPrintMinutes(pv)}
-                      className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer shrink-0"
-                    >
-                      <Printer className="w-4 h-4" />
-                      <span>{t('printA4')}</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => onPrintMinutes(pv)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
+                      >
+                        <Printer className="w-4 h-4" />
+                        <span>{t('printA4')}</span>
+                      </button>
+                      {canManage && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingMinutes(pv);
+                              setIsNewMinutesModal(true);
+                            }}
+                            title={t('edit')}
+                            className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 cursor-pointer"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: lang === 'ar' ? 'حذف المحضر' : 'Supprimer le Procès-Verbal',
+                                message: `Supprimer définitivement le PV « ${pv.title} » ?`,
+                                confirmLabel: lang === 'ar' ? 'حذف' : 'Supprimer',
+                                danger: true,
+                              });
+                              if (ok) await deleteAssemblyMinutes(pv.id);
+                            }}
+                            title={lang === 'ar' ? 'حذف' : 'Supprimer'}
+                            className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
@@ -541,12 +681,25 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
         </div>
       )}
 
-      {isNewNoticeModal && <NewNoticeModal onClose={() => setIsNewNoticeModal(false)} onSubmit={addNotice} />}
+      {isNewNoticeModal && (
+        <NewNoticeModal
+          initialNotice={editingNotice}
+          onClose={() => {
+            setIsNewNoticeModal(false);
+            setEditingNotice(null);
+          }}
+          onSubmit={editingNotice ? updateNotice : addNotice}
+        />
+      )}
       {isNewVoteModal && (
         <NewVoteModal
           eligibleCount={eligibleCount}
-          onClose={() => setIsNewVoteModal(false)}
-          onSubmit={addVote}
+          initialVote={editingVote}
+          onClose={() => {
+            setIsNewVoteModal(false);
+            setEditingVote(null);
+          }}
+          onSubmit={editingVote ? updateVote : addVote}
         />
       )}
       {isNewMinutesModal && (
@@ -555,8 +708,12 @@ export const GovernancePage: React.FC<GovernancePageProps> = ({
           apartments={data.apartments}
           defaultPresident={data.building.committee?.president || data.building.syndicPresident}
           defaultSecretary={data.building.committee?.treasurer || 'Secrétaire'}
-          onClose={() => setIsNewMinutesModal(false)}
-          onSubmit={addAssemblyMinutes}
+          initialMinutes={editingMinutes}
+          onClose={() => {
+            setIsNewMinutesModal(false);
+            setEditingMinutes(null);
+          }}
+          onSubmit={editingMinutes ? updateAssemblyMinutes : addAssemblyMinutes}
         />
       )}
     </div>

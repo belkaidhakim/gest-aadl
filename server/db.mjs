@@ -481,6 +481,36 @@ export function hasAnyBuilding() {
   return Boolean(cnt && cnt.cnt > 0);
 }
 
+function computeDefaultPin(aptId, idx) {
+  let hash = (idx + 1) * 317;
+  const s = String(aptId || '');
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) % 9000;
+  }
+  return String(1000 + (Math.abs(hash) % 9000));
+}
+
+function getBuildingExtras(buildingId) {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(`extras_${buildingId}`);
+  if (!row) return { paymentDeclarations: [], specialCalls: [] };
+  try {
+    const parsed = JSON.parse(row.value);
+    return {
+      paymentDeclarations: Array.isArray(parsed.paymentDeclarations) ? parsed.paymentDeclarations : [],
+      specialCalls: Array.isArray(parsed.specialCalls) ? parsed.specialCalls : [],
+    };
+  } catch {
+    return { paymentDeclarations: [], specialCalls: [] };
+  }
+}
+
+function saveBuildingExtras(buildingId, extras) {
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(
+    `extras_${buildingId}`,
+    JSON.stringify(extras)
+  );
+}
+
 export function getBuildingState(buildingId) {
   const bRow = db.prepare('SELECT payload FROM buildings WHERE id = ?').get(buildingId);
   if (!bRow) return null;
@@ -489,7 +519,10 @@ export function getBuildingState(buildingId) {
   const apartments = db
     .prepare('SELECT payload FROM apartments WHERE building_id = ? ORDER BY sort_order ASC')
     .all(buildingId)
-    .map((r) => JSON.parse(r.payload));
+    .map((r, idx) => {
+      const apt = JSON.parse(r.payload);
+      return { ...apt, residentPin: apt.residentPin || computeDefaultPin(apt.id, idx) };
+    });
   const payments = db
     .prepare('SELECT payload FROM payments WHERE building_id = ? ORDER BY payment_date DESC')
     .all(buildingId)
@@ -525,6 +558,7 @@ export function getBuildingState(buildingId) {
 
   const budgetRow = db.prepare('SELECT payload FROM budget_plans WHERE building_id = ?').get(buildingId);
   const rulesRow = db.prepare('SELECT payload FROM house_rules WHERE building_id = ?').get(buildingId);
+  const extras = getBuildingExtras(buildingId);
 
   return {
     building,
@@ -539,6 +573,8 @@ export function getBuildingState(buildingId) {
     preventiveTasks,
     assemblyMinutes,
     houseRules: rulesRow ? JSON.parse(rulesRow.payload) : [],
+    paymentDeclarations: extras.paymentDeclarations,
+    specialCalls: extras.specialCalls,
   };
 }
 
@@ -1316,6 +1352,120 @@ export function updateHouseRules(buildingId, rules, actor) {
     return rules;
   });
 }
+
+export function updateNotice(buildingId, noticeId, patch, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM notices WHERE building_id = ? AND id = ?').get(buildingId, noticeId);
+    if (!row) return null;
+    const updated = { ...JSON.parse(row.payload), ...patch, id: noticeId };
+    db.prepare('UPDATE notices SET date = ?, is_pinned = ?, payload = ? WHERE building_id = ? AND id = ?').run(
+      updated.date,
+      updated.isPinned ? 1 : 0,
+      JSON.stringify(updated),
+      buildingId,
+      noticeId
+    );
+    writeAuditLog(buildingId, actor, 'UPDATE_NOTICE', 'notice', noticeId, `Avis modifié : ${updated.title}`);
+    return updated;
+  });
+}
+
+export function deleteNotice(buildingId, noticeId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM notices WHERE building_id = ? AND id = ?').get(buildingId, noticeId);
+    if (!row) return false;
+    const old = JSON.parse(row.payload);
+    db.prepare('DELETE FROM notices WHERE building_id = ? AND id = ?').run(buildingId, noticeId);
+    writeAuditLog(buildingId, actor, 'DELETE_NOTICE', 'notice', noticeId, `Avis supprimé : ${old.title}`);
+    return true;
+  });
+}
+
+export function updateVote(buildingId, voteId, patch, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM votes WHERE building_id = ? AND id = ?').get(buildingId, voteId);
+    if (!row) return null;
+    const v = JSON.parse(row.payload);
+    const updated = {
+      ...v,
+      title: patch.title ?? v.title,
+      description: patch.description ?? v.description,
+      endDate: patch.endDate ?? v.endDate,
+      options: Array.isArray(patch.options)
+        ? patch.options.map((po, idx) => ({
+            id: po.id || v.options[idx]?.id || `opt-${idx + 1}`,
+            label: po.label,
+            votes: v.options.find((vo) => vo.id === po.id)?.votes ?? po.votes ?? 0,
+          }))
+        : v.options,
+    };
+    db.prepare('UPDATE votes SET payload = ? WHERE building_id = ? AND id = ?').run(JSON.stringify(updated), buildingId, voteId);
+    writeAuditLog(buildingId, actor, 'UPDATE_VOTE', 'vote', voteId, `Vote modifié : ${updated.title}`);
+    return updated;
+  });
+}
+
+export function deleteVote(buildingId, voteId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM votes WHERE building_id = ? AND id = ?').get(buildingId, voteId);
+    if (!row) return false;
+    const old = JSON.parse(row.payload);
+    db.prepare('DELETE FROM votes WHERE building_id = ? AND id = ?').run(buildingId, voteId);
+    writeAuditLog(buildingId, actor, 'DELETE_VOTE', 'vote', voteId, `Vote supprimé : ${old.title}`);
+    return true;
+  });
+}
+
+export function updateAssemblyMinutes(buildingId, pvId, patch, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM assembly_minutes WHERE building_id = ? AND id = ?').get(buildingId, pvId);
+    if (!row) return null;
+    const updated = { ...JSON.parse(row.payload), ...patch, id: pvId };
+    db.prepare('UPDATE assembly_minutes SET date = ?, payload = ? WHERE building_id = ? AND id = ?').run(
+      updated.date,
+      JSON.stringify(updated),
+      buildingId,
+      pvId
+    );
+    writeAuditLog(buildingId, actor, 'UPDATE_MINUTES', 'minutes', pvId, `PV d'AG modifié : ${updated.title}`);
+    return updated;
+  });
+}
+
+export function deleteAssemblyMinutes(buildingId, pvId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM assembly_minutes WHERE building_id = ? AND id = ?').get(buildingId, pvId);
+    if (!row) return false;
+    const old = JSON.parse(row.payload);
+    db.prepare('DELETE FROM assembly_minutes WHERE building_id = ? AND id = ?').run(buildingId, pvId);
+    writeAuditLog(buildingId, actor, 'DELETE_MINUTES', 'minutes', pvId, `PV d'AG supprimé : ${old.title}`);
+    return true;
+  });
+}
+
+export function updateVendor(buildingId, venId, patch, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM vendors WHERE building_id = ? AND id = ?').get(buildingId, venId);
+    if (!row) return null;
+    const updated = { ...JSON.parse(row.payload), ...patch, id: venId };
+    db.prepare('UPDATE vendors SET payload = ? WHERE building_id = ? AND id = ?').run(JSON.stringify(updated), buildingId, venId);
+    writeAuditLog(buildingId, actor, 'UPDATE_VENDOR', 'vendor', venId, `Prestataire modifié : ${updated.name}`);
+    return updated;
+  });
+}
+
+export function deleteVendor(buildingId, venId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM vendors WHERE building_id = ? AND id = ?').get(buildingId, venId);
+    if (!row) return false;
+    const old = JSON.parse(row.payload);
+    db.prepare('DELETE FROM vendors WHERE building_id = ? AND id = ?').run(buildingId, venId);
+    writeAuditLog(buildingId, actor, 'DELETE_VENDOR', 'vendor', venId, `Prestataire supprimé : ${old.name}`);
+    return true;
+  });
+}
+
+export { getBuildingExtras, saveBuildingExtras };
 
 export function addVendor(buildingId, vendor, actor) {
   return runInTransaction(() => {

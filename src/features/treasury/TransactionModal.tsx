@@ -34,6 +34,7 @@ interface TransactionModalProps {
   reserveBalance: number;
   defaultType?: TransactionType;
   initialTransaction?: Transaction | null;
+  initialPreset?: Partial<Transaction> | null;
   onClose: () => void;
   onSubmit: (tx: Transaction) => Promise<void> | void;
 }
@@ -43,6 +44,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   reserveBalance,
   defaultType = 'depense',
   initialTransaction = null,
+  initialPreset = null,
   onClose,
   onSubmit,
 }) => {
@@ -77,6 +79,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         date: (initialTransaction.date || new Date().toISOString()).slice(0, 10),
         attachmentName: initialTransaction.attachmentName,
         attachmentDataUrl: initialTransaction.attachmentDataUrl,
+      };
+    }
+    if (initialPreset) {
+      const pType = initialPreset.type || defaultType;
+      return {
+        type: pType,
+        fund: initialPreset.fund || 'courant',
+        category:
+          initialPreset.category ||
+          (pType === 'recette' ? 'Cotisations Copropriétaires' : 'Facture Électricité Sonelgaz'),
+        amountDZD: initialPreset.amountDZD || 10000,
+        description: initialPreset.description || '',
+        referenceDoc: initialPreset.referenceDoc || '',
+        paymentMethod: initialPreset.paymentMethod || 'Espèces',
+        date: (initialPreset.date || new Date().toISOString()).slice(0, 10),
       };
     }
     return {
