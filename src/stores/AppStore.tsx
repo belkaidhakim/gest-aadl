@@ -35,8 +35,11 @@ import {
   addVoteRemote,
   appendLocalAuditLog,
   castVoteRemote,
+  clearIncidentMessagesRemote,
   completePreventiveRemote,
   createBuildingRemote,
+  deleteIncidentMessageRemote,
+  deleteIncidentRemote,
   deletePaymentRemote,
   deleteTransactionRemote,
   fetchIncidentMessagesRemote,
@@ -55,6 +58,8 @@ import {
   updateBudgetRemote,
   updateBuildingRemote,
   updateHouseRulesRemote,
+  updateIncidentMessageRemote,
+  updateIncidentRemote,
   updateIncidentStatusRemote,
   updatePaymentRemote,
   updateTransactionRemote,
@@ -63,6 +68,30 @@ import {
 import { useToast } from '../components/ui/ToastProvider';
 
 const LOCAL_BUILDINGS_KEY = 'gest_aadl_multi_buildings_v3';
+const RESIDENT_MSG_TOKENS_KEY = 'gest_aadl_resident_msg_tokens';
+
+function loadResidentMsgTokens(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(RESIDENT_MSG_TOKENS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, string>;
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function saveResidentMsgToken(msgId: string, token: string): void {
+  try {
+    const existing = loadResidentMsgTokens();
+    const entries = Object.entries({ ...existing, [msgId]: token }).slice(-150);
+    localStorage.setItem(RESIDENT_MSG_TOKENS_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // ignore
+  }
+}
 
 interface AppStoreValue {
   data: AppData;
@@ -90,11 +119,17 @@ interface AppStoreValue {
   updatePayment: (payment: PaymentRecord) => Promise<void>;
   deletePayment: (paymentId: string) => Promise<void>;
   addIncident: (incident: Incident) => Promise<void>;
+  updateIncident: (incident: Incident) => Promise<void>;
+  deleteIncident: (incidentId: string) => Promise<void>;
   reportResidentIncident: (payload: ResidentIncidentReportPayload) => Promise<Incident | null>;
   sendIncidentMessage: (
     incidentId: string,
     payload: { text: string; senderName?: string; apartmentNumber?: string }
   ) => Promise<IncidentMessage | null>;
+  updateIncidentMessage: (incidentId: string, msgId: string, text: string) => Promise<boolean>;
+  deleteIncidentMessage: (incidentId: string, msgId: string) => Promise<boolean>;
+  clearIncidentMessages: (incidentId: string) => Promise<boolean>;
+  canEditOwnMessage: (msgId: string) => boolean;
   syncIncidentMessages: (incidentId: string) => Promise<void>;
   updateIncidentStatus: (
     incidentId: string,
@@ -460,6 +495,53 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
+  const updateIncident = useCallback(
+    async (incident: Incident) => {
+      let merged: Incident = incident;
+      if (serverConnected) {
+        const res = await updateIncidentRemote(activeBuildingId, incident);
+        if (!res.ok) {
+          toast.error(res.error || 'Erreur lors de la modification');
+          return;
+        }
+        if (res.data?.incident) merged = res.data.incident;
+      }
+      persistLocal(
+        {
+          ...data,
+          incidents: data.incidents.map((inc) => (inc.id === incident.id ? { ...inc, ...merged } : inc)),
+        },
+        activeBuildingId
+      );
+      logLocal('UPDATE_INCIDENT', 'incident', `Modification panne : ${merged.title}`);
+      toast.success('Signalement modifié');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+  );
+
+  const deleteIncident = useCallback(
+    async (incidentId: string) => {
+      const target = data.incidents.find((inc) => inc.id === incidentId);
+      if (serverConnected) {
+        const res = await deleteIncidentRemote(activeBuildingId, incidentId);
+        if (!res.ok && !res.error?.includes('introuvable') && !res.error?.includes('404')) {
+          toast.error(res.error || 'Erreur lors de la suppression');
+          return;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          incidents: data.incidents.filter((inc) => inc.id !== incidentId),
+        },
+        activeBuildingId
+      );
+      logLocal('DELETE_INCIDENT', 'incident', `Suppression panne & discussion : ${target?.title || incidentId}`);
+      toast.info('Signalement et discussion supprimés');
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+  );
+
   const reportResidentIncident = useCallback(
     async (payload: ResidentIncidentReportPayload): Promise<Incident | null> => {
       if (serverConnected) {
@@ -467,6 +549,10 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (!res.ok || !res.data?.incident) {
           toast.error(res.error || 'Impossible d’envoyer le signalement');
           return null;
+        }
+        const firstMsgId = res.data.incident.messages?.[0]?.id;
+        if (firstMsgId && res.data.editToken) {
+          saveResidentMsgToken(firstMsgId, res.data.editToken);
         }
         persistLocal({ ...data, incidents: [res.data.incident, ...data.incidents] }, activeBuildingId);
         toast.success(res.data.incident.title);
@@ -479,6 +565,8 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         payload.initialMessage?.trim() ||
         payload.description.trim() ||
         `Signalement : ${payload.title.trim()} (${payload.location.trim()})`;
+      const localMsgId = `msg-${Date.now()}`;
+      saveResidentMsgToken(localMsgId, 'local-owner');
       const localInc: Incident = {
         id: `inc-res-${Date.now()}`,
         title: payload.title.trim(),
@@ -494,7 +582,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         quotes: [],
         messages: [
           {
-            id: `msg-${Date.now()}`,
+            id: localMsgId,
             senderRole: 'resident',
             senderName: effectiveReporter,
             ...(payload.apartmentNumber ? { apartmentNumber: payload.apartmentNumber } : {}),
@@ -535,6 +623,9 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           toast.error(res.error || 'Impossible d’envoyer le message');
           return null;
         }
+        if (res.data.editToken) {
+          saveResidentMsgToken(res.data.message.id, res.data.editToken);
+        }
         const serverInc = res.data.incident;
         const nextIncidents = data.incidents.map((inc) =>
           inc.id === incidentId
@@ -559,6 +650,9 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         text: cleanText,
         timestamp: new Date().toISOString(),
       };
+      if (!isBureauSender) {
+        saveResidentMsgToken(localMsg.id, 'local-owner');
+      }
       const targetInc = data.incidents.find((i) => i.id === incidentId);
       const nextIncidents = data.incidents.map((inc) =>
         inc.id === incidentId
@@ -576,6 +670,120 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return localMsg;
     },
     [data, serverConnected, activeBuildingId, role, user.fullName, persistLocal, logLocal, toast]
+  );
+
+  const canEditOwnMessage = useCallback((msgId: string): boolean => {
+    const tokens = loadResidentMsgTokens();
+    return Boolean(tokens[msgId]);
+  }, []);
+
+  const updateIncidentMessage = useCallback(
+    async (incidentId: string, msgId: string, text: string): Promise<boolean> => {
+      const cleanText = text.trim();
+      if (!cleanText) return false;
+      const editToken = loadResidentMsgTokens()[msgId];
+      if (serverConnected) {
+        const res = await updateIncidentMessageRemote(activeBuildingId, incidentId, msgId, cleanText, editToken);
+        if (!res.ok) {
+          toast.error(res.error || 'Impossible de modifier ce message');
+          return false;
+        }
+        if (res.data?.incident) {
+          persistLocal(
+            {
+              ...data,
+              incidents: data.incidents.map((inc) => (inc.id === incidentId ? res.data!.incident : inc)),
+            },
+            activeBuildingId
+          );
+          toast.success('Message modifié');
+          return true;
+        }
+      }
+      const nowIso = new Date().toISOString();
+      persistLocal(
+        {
+          ...data,
+          incidents: data.incidents.map((inc) =>
+            inc.id === incidentId
+              ? {
+                  ...inc,
+                  messages: (inc.messages || []).map((m) =>
+                    m.id === msgId ? { ...m, text: cleanText, editedAt: nowIso } : m
+                  ),
+                }
+              : inc
+          ),
+        },
+        activeBuildingId
+      );
+      toast.success('Message modifié');
+      return true;
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const deleteIncidentMessage = useCallback(
+    async (incidentId: string, msgId: string): Promise<boolean> => {
+      const editToken = loadResidentMsgTokens()[msgId];
+      if (serverConnected) {
+        const res = await deleteIncidentMessageRemote(activeBuildingId, incidentId, msgId, editToken);
+        if (!res.ok) {
+          toast.error(res.error || 'Impossible de supprimer ce message');
+          return false;
+        }
+        if (res.data?.incident) {
+          persistLocal(
+            {
+              ...data,
+              incidents: data.incidents.map((inc) => (inc.id === incidentId ? res.data!.incident : inc)),
+            },
+            activeBuildingId
+          );
+          toast.info('Message supprimé');
+          return true;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          incidents: data.incidents.map((inc) =>
+            inc.id === incidentId
+              ? {
+                  ...inc,
+                  messages: (inc.messages || []).filter((m) => m.id !== msgId),
+                }
+              : inc
+          ),
+        },
+        activeBuildingId
+      );
+      toast.info('Message supprimé');
+      return true;
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
+  );
+
+  const clearIncidentMessages = useCallback(
+    async (incidentId: string): Promise<boolean> => {
+      if (serverConnected) {
+        const res = await clearIncidentMessagesRemote(activeBuildingId, incidentId);
+        if (!res.ok) {
+          toast.error(res.error || 'Impossible de vider la discussion');
+          return false;
+        }
+      }
+      persistLocal(
+        {
+          ...data,
+          incidents: data.incidents.map((inc) => (inc.id === incidentId ? { ...inc, messages: [] } : inc)),
+        },
+        activeBuildingId
+      );
+      toast.info('Discussion vidée');
+      return true;
+    },
+    [data, serverConnected, activeBuildingId, persistLocal, toast]
   );
 
   const syncIncidentMessages = useCallback(
@@ -1157,8 +1365,14 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updatePayment,
         deletePayment,
         addIncident,
+        updateIncident,
+        deleteIncident,
         reportResidentIncident,
         sendIncidentMessage,
+        updateIncidentMessage,
+        deleteIncidentMessage,
+        clearIncidentMessages,
+        canEditOwnMessage,
         syncIncidentMessages,
         updateIncidentStatus,
         addIncidentQuote,

@@ -133,6 +133,7 @@ export interface IncidentMessage {
   apartmentNumber?: string;
   text: string;
   timestamp: string;
+  editedAt?: string;
 }
 
 export interface Incident {

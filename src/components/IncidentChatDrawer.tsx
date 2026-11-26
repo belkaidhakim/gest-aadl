@@ -11,11 +11,15 @@ import {
   RefreshCw,
   Phone,
   Wrench,
+  Pencil,
+  Trash2,
+  Check,
 } from 'lucide-react';
 import { Apartment, Incident, UserRole } from '../types';
 import { useAppStore } from '../stores/AppStore';
 import { useI18n } from '../i18n';
 import { canManageMaintenance } from '../utils/permissions';
+import { useConfirm } from './ui/ConfirmDialog';
 
 export const RESIDENT_CHAT_ID_KEY = 'gest_aadl_resident_chat_id';
 
@@ -66,13 +70,19 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
   syndicPhone,
   onClose,
 }) => {
-  const { lang } = useI18n();
+  const { lang, t } = useI18n();
+  const { confirm } = useConfirm();
   const {
     data,
     role,
     isBureau,
     serverConnected,
     sendIncidentMessage,
+    updateIncidentMessage,
+    deleteIncidentMessage,
+    clearIncidentMessages,
+    deleteIncident,
+    canEditOwnMessage,
     syncIncidentMessages,
     updateIncidentStatus,
   } = useAppStore();
@@ -84,6 +94,9 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
   const [residentIdentity, setResidentIdentity] = useState<SavedResidentIdentity>(() =>
     loadSavedResidentIdentity(apartments[0]?.number || '')
   );
@@ -123,7 +136,76 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
   if (!liveIncident) return null;
 
   const isResolved = liveIncident.status === 'resolu';
-  const canTakeCharge = isBureau && canManageMaintenance(role) && liveIncident.status === 'signale';
+  const canModerate = isBureau && canManageMaintenance(role);
+  const canTakeCharge = canModerate && liveIncident.status === 'signale';
+
+  const handleSaveMsgEdit = async (msgId: string) => {
+    const clean = editingText.trim();
+    if (!clean || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      const ok = await updateIncidentMessage(liveIncident.id, msgId, clean);
+      if (ok) {
+        setEditingMsgId(null);
+        setEditingText('');
+      }
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteMsg = async (msgId: string, preview: string) => {
+    const ok = await confirm({
+      title: lang === 'ar' ? 'حذف الرسالة' : 'Supprimer ce message ?',
+      message:
+        lang === 'ar'
+          ? `هل تريد حذف الرسالة: "${preview.slice(0, 80)}"؟`
+          : `Confirmez-vous la suppression du message « ${preview.slice(0, 80)} » ?`,
+      confirmLabel: lang === 'ar' ? 'حذف' : 'Supprimer',
+      cancelLabel: t('cancel'),
+      danger: true,
+    });
+    if (ok) {
+      await deleteIncidentMessage(liveIncident.id, msgId);
+      if (editingMsgId === msgId) {
+        setEditingMsgId(null);
+        setEditingText('');
+      }
+    }
+  };
+
+  const handleClearDiscussion = async () => {
+    const ok = await confirm({
+      title: lang === 'ar' ? 'مسح المحادثة بالكامل' : 'Vider toute la discussion ?',
+      message:
+        lang === 'ar'
+          ? `سيتم حذف جميع الرسائل (${messages.length}) المرتبطة بهذا العطل مع الإبقاء على البلاغ.`
+          : `Tous les messages (${messages.length}) de cette discussion seront supprimés. Le signalement de panne sera conservé.`,
+      confirmLabel: lang === 'ar' ? 'مسح المحادثة' : 'Vider la discussion',
+      cancelLabel: t('cancel'),
+      danger: true,
+    });
+    if (ok) {
+      await clearIncidentMessages(liveIncident.id);
+    }
+  };
+
+  const handleDeleteEntireIncident = async () => {
+    const ok = await confirm({
+      title: lang === 'ar' ? 'حذف البلاغ والمحادثة' : 'Supprimer ce signalement et sa discussion ?',
+      message:
+        lang === 'ar'
+          ? `سيتم حذف العطل "${liveIncident.title}" وجميع رسائله نهائياً.`
+          : `Le signalement « ${liveIncident.title} » ainsi que toute sa discussion seront définitivement supprimés.`,
+      confirmLabel: lang === 'ar' ? 'حذف نهائي' : 'Supprimer',
+      cancelLabel: t('cancel'),
+      danger: true,
+    });
+    if (ok) {
+      await deleteIncident(liveIncident.id);
+      onClose();
+    }
+  };
 
   const formatTime = (iso: string) => {
     try {
@@ -263,6 +345,26 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              {canModerate && messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearDiscussion}
+                  title={lang === 'ar' ? 'مسح جميع الرسائل' : 'Vider la discussion'}
+                  className="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 border border-amber-200 dark:border-amber-800 cursor-pointer"
+                >
+                  {lang === 'ar' ? 'مسح الرسائل' : 'Vider'}
+                </button>
+              )}
+              {canModerate && (
+                <button
+                  type="button"
+                  onClick={handleDeleteEntireIncident}
+                  title={lang === 'ar' ? 'حذف البلاغ والمحادثة' : 'Supprimer le signalement et la discussion'}
+                  className="p-1.5 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
               {serverConnected && (
                 <button
                   type="button"
@@ -374,13 +476,15 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
                 msg.senderRole === 'technical';
               const isOwnSide = isBureau ? msgIsBureau : !msgIsBureau;
               const badge = getRoleBadge(msg.senderRole);
+              const canEditMsg = canModerate || (!msgIsBureau && canEditOwnMessage(msg.id));
+              const isEditingThis = editingMsgId === msg.id;
 
               return (
                 <div
                   key={msg.id}
                   className={`flex flex-col ${isOwnSide ? 'items-end' : 'items-start'}`}
                 >
-                  <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px]">
+                  <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] flex-wrap">
                     {msgIsBureau ? (
                       <ShieldCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     ) : (
@@ -390,22 +494,90 @@ export const IncidentChatDrawer: React.FC<IncidentChatDrawerProps> = ({
                     <span className={`px-1.5 py-0.2 rounded border text-[9px] font-semibold ${badge.cls}`}>
                       {badge.label}
                     </span>
-                    <span className="font-mono text-slate-400">{formatTime(msg.timestamp)}</span>
+                    <span className="font-mono text-slate-400">
+                      {formatTime(msg.timestamp)}
+                      {msg.editedAt ? (lang === 'ar' ? ' (معدّل)' : ' (modifié)') : ''}
+                    </span>
+                    {canEditMsg && !isEditingThis && (
+                      <span className="inline-flex items-center gap-1 ms-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMsgId(msg.id);
+                            setEditingText(msg.text);
+                          }}
+                          title={lang === 'ar' ? 'تعديل الرسالة' : 'Modifier ce message'}
+                          className="p-0.5 rounded text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMsg(msg.id, msg.text)}
+                          title={lang === 'ar' ? 'حذف الرسالة' : 'Supprimer ce message'}
+                          className="p-0.5 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </span>
+                    )}
                   </div>
 
-                  <div
-                    className={`max-w-[86%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-line shadow-2xs ${
-                      msgIsBureau
-                        ? isOwnSide
-                          ? 'bg-emerald-600 text-white rounded-ee-sm'
-                          : 'bg-emerald-50 dark:bg-emerald-950/60 text-slate-900 dark:text-emerald-50 border border-emerald-200 dark:border-emerald-800/80 rounded-es-sm'
-                        : isOwnSide
-                        ? 'bg-slate-900 dark:bg-emerald-600 text-white rounded-ee-sm'
-                        : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-es-sm'
-                    }`}
-                  >
-                    {msg.text}
-                  </div>
+                  {isEditingThis ? (
+                    <div className="w-full max-w-[90%] rounded-2xl p-2.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
+                      <textarea
+                        rows={2}
+                        maxLength={800}
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSaveMsgEdit(msg.id);
+                          } else if (e.key === 'Escape') {
+                            setEditingMsgId(null);
+                            setEditingText('');
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-900 dark:text-white resize-none"
+                      />
+                      <div className="flex items-center justify-end gap-1.5 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMsgId(null);
+                            setEditingText('');
+                          }}
+                          className="px-2.5 py-1 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+                        >
+                          {t('cancel')}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingEdit || !editingText.trim()}
+                          onClick={() => handleSaveMsgEdit(msg.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold cursor-pointer"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>{t('save')}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className={`max-w-[86%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-line shadow-2xs ${
+                        msgIsBureau
+                          ? isOwnSide
+                            ? 'bg-emerald-600 text-white rounded-ee-sm'
+                            : 'bg-emerald-50 dark:bg-emerald-950/60 text-slate-900 dark:text-emerald-50 border border-emerald-200 dark:border-emerald-800/80 rounded-es-sm'
+                          : isOwnSide
+                          ? 'bg-slate-900 dark:bg-emerald-600 text-white rounded-ee-sm'
+                          : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-es-sm'
+                      }`}
+                    >
+                      {msg.text}
+                    </div>
+                  )}
                 </div>
               );
             })

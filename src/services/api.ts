@@ -378,7 +378,7 @@ export const sendIncidentMessageRemote = (
   incidentId: string,
   payload: { text: string; senderName?: string; apartmentNumber?: string }
 ) =>
-  apiRequest<{ ok: boolean; message: IncidentMessage; incident: Incident }>(
+  apiRequest<{ ok: boolean; message: IncidentMessage; incident: Incident; editToken?: string }>(
     `/api/incidents/${encodeURIComponent(incidentId)}/messages?buildingId=${encodeURIComponent(buildingId)}`,
     {
       method: 'POST',
@@ -386,11 +386,49 @@ export const sendIncidentMessageRemote = (
     }
   );
 
+export const updateIncidentMessageRemote = (
+  buildingId: string,
+  incidentId: string,
+  msgId: string,
+  text: string,
+  editToken?: string
+) =>
+  apiRequest<{ ok: boolean; incident: Incident }>(
+    `/api/incidents/${encodeURIComponent(incidentId)}/messages/${encodeURIComponent(msgId)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ text, editToken }),
+    }
+  );
+
+export const deleteIncidentMessageRemote = (
+  buildingId: string,
+  incidentId: string,
+  msgId: string,
+  editToken?: string
+) => {
+  const tokenParam = editToken ? `&editToken=${encodeURIComponent(editToken)}` : '';
+  return apiRequest<{ ok: boolean; incident: Incident }>(
+    `/api/incidents/${encodeURIComponent(incidentId)}/messages/${encodeURIComponent(msgId)}?buildingId=${encodeURIComponent(buildingId)}${tokenParam}`,
+    {
+      method: 'DELETE',
+    }
+  );
+};
+
+export const clearIncidentMessagesRemote = (buildingId: string, incidentId: string) =>
+  apiRequest<{ ok: boolean; incident: Incident }>(
+    `/api/incidents/${encodeURIComponent(incidentId)}/messages?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
 export const reportResidentIncidentRemote = (
   buildingId: string,
   report: ResidentIncidentReportPayload
 ) =>
-  apiRequest<{ ok: boolean; incident: Incident }>(
+  apiRequest<{ ok: boolean; incident: Incident; editToken?: string }>(
     `/api/incidents/report?buildingId=${encodeURIComponent(buildingId)}`,
     {
       method: 'POST',
@@ -402,6 +440,20 @@ export const addIncidentRemote = (buildingId: string, incident: Incident) =>
   apiRequest(`/api/incidents?buildingId=${encodeURIComponent(buildingId)}`, {
     method: 'POST',
     body: JSON.stringify({ incident }),
+  });
+
+export const updateIncidentRemote = (buildingId: string, incident: Incident) =>
+  apiRequest<{ ok: boolean; incident: Incident }>(
+    `/api/incidents/${encodeURIComponent(incident.id)}?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ incident }),
+    }
+  );
+
+export const deleteIncidentRemote = (buildingId: string, incidentId: string) =>
+  apiRequest(`/api/incidents/${encodeURIComponent(incidentId)}?buildingId=${encodeURIComponent(buildingId)}`, {
+    method: 'DELETE',
   });
 
 export const updateIncidentStatusRemote = (

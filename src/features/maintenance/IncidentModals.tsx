@@ -14,6 +14,7 @@ interface NewIncidentModalProps {
   defaultReporter: string;
   vendors: Vendor[];
   totalFloors: number;
+  initialIncident?: Incident | null;
   onClose: () => void;
   onSubmit: (incident: Incident) => Promise<void> | void;
 }
@@ -22,39 +23,45 @@ export const NewIncidentModal: React.FC<NewIncidentModalProps> = ({
   defaultReporter,
   vendors,
   totalFloors,
+  initialIncident = null,
   onClose,
   onSubmit,
 }) => {
   const { lang, t } = useI18n();
+  const isEditing = Boolean(initialIncident);
   const [form, setForm] = useState({
-    title: '',
-    category: 'ascenseur' as IncidentCategory,
-    location: lang === 'ar' ? 'المصعد الأيسر (رقم 1)' : 'Ascenseur Gauche (N°1)',
-    floor: 0,
-    priority: 'normale' as IncidentPriority,
-    description: '',
-    reportedBy: defaultReporter,
-    assignedVendor: vendors[0]?.name || '',
-    estimatedCostDZD: 5000,
+    title: initialIncident?.title || '',
+    category: (initialIncident?.category || 'ascenseur') as IncidentCategory,
+    location:
+      initialIncident?.location ||
+      (lang === 'ar' ? 'المصعد الأيسر (رقم 1)' : 'Ascenseur Gauche (N°1)'),
+    floor: initialIncident?.floor ?? 0,
+    priority: (initialIncident?.priority || 'normale') as IncidentPriority,
+    description: initialIncident?.description || '',
+    reportedBy: initialIncident?.reportedBy || defaultReporter,
+    assignedVendor: initialIncident?.assignedVendor ?? (vendors[0]?.name || ''),
+    estimatedCostDZD: initialIncident?.estimatedCostDZD ?? 5000,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) return;
     await onSubmit({
-      id: `inc-${Date.now()}`,
+      ...(initialIncident || {}),
+      id: initialIncident ? initialIncident.id : `inc-${Date.now()}`,
       title: form.title.trim(),
       category: form.category,
       location: form.location.trim(),
       floor: Number(form.floor) || 0,
       priority: form.priority,
-      status: 'signale',
+      status: initialIncident ? initialIncident.status : 'signale',
       description: form.description.trim(),
       reportedBy: form.reportedBy.trim() || defaultReporter,
-      reportedDate: new Date().toISOString(),
+      reportedDate: initialIncident ? initialIncident.reportedDate : new Date().toISOString(),
       assignedVendor: form.assignedVendor.trim() || undefined,
       estimatedCostDZD: Number(form.estimatedCostDZD) || 0,
-      quotes: [],
+      quotes: initialIncident?.quotes || [],
+      messages: initialIncident?.messages || [],
     });
     onClose();
   };
@@ -66,7 +73,13 @@ export const NewIncidentModal: React.FC<NewIncidentModalProps> = ({
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500" />
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              {lang === 'ar' ? 'الإبلاغ عن عطل أو تدخل تقني' : 'Signaler un incident technique'}
+              {isEditing
+                ? lang === 'ar'
+                  ? 'تعديل البلاغ التقني'
+                  : 'Modifier le signalement'
+                : lang === 'ar'
+                ? 'الإبلاغ عن عطل أو تدخل تقني'
+                : 'Signaler un incident technique'}
             </h3>
           </div>
           <button
@@ -232,7 +245,11 @@ export const NewIncidentModal: React.FC<NewIncidentModalProps> = ({
               type="submit"
               className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer shadow-xs"
             >
-              {lang === 'ar' ? 'تسجيل العطل' : 'Signaler la panne'}
+              {isEditing
+                ? t('save')
+                : lang === 'ar'
+                ? 'تسجيل العطل'
+                : 'Signaler la panne'}
             </button>
           </div>
         </form>

@@ -892,6 +892,104 @@ export function addIncident(buildingId, inc, actor) {
   });
 }
 
+export function updateIncident(buildingId, incId, patch, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
+    if (!row) return null;
+    const oldInc = JSON.parse(row.payload);
+    const updated = {
+      ...oldInc,
+      ...patch,
+      id: incId,
+      quotes: patch.quotes ?? oldInc.quotes ?? [],
+      messages: patch.messages ?? oldInc.messages ?? [],
+    };
+    db.prepare('UPDATE incidents SET status = ?, priority = ?, payload = ? WHERE building_id = ? AND id = ?').run(
+      updated.status,
+      updated.priority,
+      JSON.stringify(updated),
+      buildingId,
+      incId
+    );
+    writeAuditLog(buildingId, actor, 'UPDATE_INCIDENT', 'incident', incId, `Modification panne : ${updated.title}`);
+    return updated;
+  });
+}
+
+export function deleteIncident(buildingId, incId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
+    if (!row) return false;
+    const oldInc = JSON.parse(row.payload);
+    db.prepare('DELETE FROM incidents WHERE building_id = ? AND id = ?').run(buildingId, incId);
+    writeAuditLog(buildingId, actor, 'DELETE_INCIDENT', 'incident', incId, `Suppression panne & discussion : ${oldInc.title}`);
+    return true;
+  });
+}
+
+export function updateIncidentMessage(buildingId, incId, msgId, newText, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
+    if (!row) return null;
+    const inc = JSON.parse(row.payload);
+    const exists = (inc.messages || []).some((m) => m.id === msgId);
+    if (!exists) return null;
+    const updated = {
+      ...inc,
+      messages: (inc.messages || []).map((m) =>
+        m.id === msgId ? { ...m, text: newText, editedAt: new Date().toISOString() } : m
+      ),
+    };
+    db.prepare('UPDATE incidents SET payload = ? WHERE building_id = ? AND id = ?').run(
+      JSON.stringify(updated),
+      buildingId,
+      incId
+    );
+    writeAuditLog(buildingId, actor, 'EDIT_INCIDENT_MESSAGE', 'incident', incId, `Message modifié dans "${inc.title}"`);
+    return updated;
+  });
+}
+
+export function deleteIncidentMessage(buildingId, incId, msgId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
+    if (!row) return null;
+    const inc = JSON.parse(row.payload);
+    const exists = (inc.messages || []).some((m) => m.id === msgId);
+    if (!exists) return null;
+    const updated = {
+      ...inc,
+      messages: (inc.messages || []).filter((m) => m.id !== msgId),
+    };
+    db.prepare('UPDATE incidents SET payload = ? WHERE building_id = ? AND id = ?').run(
+      JSON.stringify(updated),
+      buildingId,
+      incId
+    );
+    writeAuditLog(buildingId, actor, 'DELETE_INCIDENT_MESSAGE', 'incident', incId, `Message supprimé dans "${inc.title}"`);
+    return updated;
+  });
+}
+
+export function clearIncidentMessages(buildingId, incId, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
+    if (!row) return null;
+    const inc = JSON.parse(row.payload);
+    const updated = {
+      ...inc,
+      messages: [],
+    };
+    db.prepare('UPDATE incidents SET payload = ? WHERE building_id = ? AND id = ?').run(
+      JSON.stringify(updated),
+      buildingId,
+      incId
+    );
+    writeAuditLog(buildingId, actor, 'CLEAR_DISCUSSION', 'incident', incId, `Discussion vidée sur "${inc.title}"`);
+    return updated;
+  });
+}
+
 export function getIncidentById(buildingId, incId) {
   const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
   return row ? JSON.parse(row.payload) : null;

@@ -12,6 +12,8 @@ import {
   Scale,
   ShieldCheck,
   MessageSquare,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import {
   Incident,
@@ -21,16 +23,20 @@ import { formatDZD, formatDateFr } from '../../utils/helpers';
 import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { canManageMaintenance } from '../../utils/permissions';
+import { useConfirm } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { IncidentChatDrawer } from '../../components/IncidentChatDrawer';
 import { AddQuoteModal, NewIncidentModal, ResolveIncidentModal } from './IncidentModals';
 
 export const MaintenancePage: React.FC = () => {
   const { lang, t } = useI18n();
+  const { confirm } = useConfirm();
   const {
     data,
     role,
     addIncident,
+    updateIncident,
+    deleteIncident,
     updateIncidentStatus,
     addIncidentQuote,
     selectIncidentQuote,
@@ -41,9 +47,27 @@ export const MaintenancePage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [editingIncident, setEditingIncident] = useState<Incident | null>(null);
   const [resolvingIncident, setResolvingIncident] = useState<Incident | null>(null);
   const [quoteIncident, setQuoteIncident] = useState<Incident | null>(null);
   const [chatIncident, setChatIncident] = useState<Incident | null>(null);
+
+  const handleDeleteIncident = async (inc: Incident) => {
+    const ok = await confirm({
+      title: lang === 'ar' ? 'حذف البلاغ والمحادثة' : 'Supprimer ce signalement et sa discussion ?',
+      message:
+        lang === 'ar'
+          ? `هل تريد حذف العطل "${inc.title}" وجميع رسائل المحادثة المرتبطة به؟`
+          : `Confirmez-vous la suppression de « ${inc.title} » ainsi que de ses ${(inc.messages || []).length} message(s) ?`,
+      confirmLabel: lang === 'ar' ? 'حذف' : 'Supprimer',
+      cancelLabel: t('cancel'),
+      danger: true,
+    });
+    if (ok) {
+      await deleteIncident(inc.id);
+      if (chatIncident?.id === inc.id) setChatIncident(null);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -328,6 +352,29 @@ export const MaintenancePage: React.FC = () => {
                           </button>
                         </>
                       )}
+
+                      {canManage && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setEditingIncident(inc)}
+                            title={t('edit')}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 border border-amber-200 dark:border-amber-800 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            <span>{t('edit')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteIncident(inc)}
+                            title={lang === 'ar' ? 'حذف' : 'Supprimer'}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 border border-rose-200 dark:border-rose-800 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>{lang === 'ar' ? 'حذف' : 'Supprimer'}</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -455,6 +502,20 @@ export const MaintenancePage: React.FC = () => {
           totalFloors={data.building.totalFloors}
           onClose={() => setIsNewModalOpen(false)}
           onSubmit={addIncident}
+        />
+      )}
+
+      {editingIncident && (
+        <NewIncidentModal
+          defaultReporter={data.building.syndicPresident}
+          vendors={data.vendors}
+          totalFloors={data.building.totalFloors}
+          initialIncident={editingIncident}
+          onClose={() => setEditingIncident(null)}
+          onSubmit={async (updated) => {
+            await updateIncident(updated);
+            setEditingIncident(null);
+          }}
         />
       )}
 

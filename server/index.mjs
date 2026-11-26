@@ -8,6 +8,11 @@ import {
   addIncident,
   addIncidentMessage,
   addIncidentQuote,
+  clearIncidentMessages,
+  deleteIncident,
+  deleteIncidentMessage,
+  updateIncident,
+  updateIncidentMessage,
   addNotice,
   addPreventiveTask,
   addTransaction,
@@ -614,7 +619,12 @@ const server = http.createServer(async (req, res) => {
           role: 'resident',
         };
         const inc = addIncident(buildingId, cleanIncident, residentActor);
-        return sendJson(res, 201, { ok: true, incident: inc });
+        const editToken = signToken({
+          type: 'msg_owner',
+          msgId: cleanIncident.messages[0].id,
+          exp: Date.now() + SESSION_TTL_MS,
+        });
+        return sendJson(res, 201, { ok: true, incident: inc, editToken });
       }
 
       // Incidents & Quotes
@@ -688,7 +698,85 @@ const server = http.createServer(async (req, res) => {
         const msgActor = isBureauSender ? actor : { id: 'resident-portal', username: 'resident', fullName: senderName, role: 'resident' };
         const resObj = addIncidentMessage(buildingId, incId, newMessage, msgActor);
         if (!resObj) return sendJson(res, 404, { error: 'Incident introuvable.' });
-        return sendJson(res, 201, { ok: true, ...resObj });
+        const editToken = !isBureauSender
+          ? signToken({ type: 'msg_owner', msgId: newMessage.id, exp: Date.now() + SESSION_TTL_MS })
+          : undefined;
+        return sendJson(res, 201, { ok: true, ...resObj, ...(editToken ? { editToken } : {}) });
+      }
+
+      if (incMessagesMatch && method === 'DELETE') {
+        if (!canMaintenance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const incId = decodeURIComponent(incMessagesMatch[1]);
+        const updated = clearIncidentMessages(buildingId, incId, actor);
+        return sendJson(res, updated ? 200 : 404, {
+          ok: Boolean(updated),
+          ...(updated ? { incident: updated } : { error: 'Incident introuvable.' }),
+        });
+      }
+
+      const incMsgItemMatch = urlPath.match(/^\/api\/incidents\/([^/]+)\/messages\/([^/]+)$/);
+      if (incMsgItemMatch && method === 'PUT') {
+        const incId = decodeURIComponent(incMsgItemMatch[1]);
+        const msgId = decodeURIComponent(incMsgItemMatch[2]);
+        const body = await readJsonBody(req);
+        const text = String(body?.text || '').trim().slice(0, 800);
+        if (!text) return sendJson(res, 400, { error: 'Veuillez saisir un message.' });
+        const target = getIncidentById(buildingId, incId);
+        const targetMsg = target?.messages?.find((m) => m.id === msgId);
+        if (!targetMsg) return sendJson(res, 404, { error: 'Message introuvable.' });
+        const claims = body?.editToken ? verifyToken(String(body.editToken)) : null;
+        const isOwner = claims?.type === 'msg_owner' && claims?.msgId === msgId && targetMsg.senderRole === 'resident';
+        if (!canMaintenance(actor.role) && !isOwner) {
+          return sendJson(res, 403, { error: 'Modification réservée à l’auteur ou au Président.' });
+        }
+        const updated = updateIncidentMessage(
+          buildingId,
+          incId,
+          msgId,
+          text,
+          canMaintenance(actor.role) ? actor : { fullName: targetMsg.senderName, role: 'resident' }
+        );
+        return sendJson(res, 200, { ok: true, incident: updated });
+      }
+
+      if (incMsgItemMatch && method === 'DELETE') {
+        const incId = decodeURIComponent(incMsgItemMatch[1]);
+        const msgId = decodeURIComponent(incMsgItemMatch[2]);
+        const target = getIncidentById(buildingId, incId);
+        const targetMsg = target?.messages?.find((m) => m.id === msgId);
+        if (!targetMsg) return sendJson(res, 404, { error: 'Message introuvable.' });
+        const queryToken = reqUrl.searchParams.get('editToken') || '';
+        const claims = queryToken ? verifyToken(queryToken) : null;
+        const isOwner = claims?.type === 'msg_owner' && claims?.msgId === msgId && targetMsg.senderRole === 'resident';
+        if (!canMaintenance(actor.role) && !isOwner) {
+          return sendJson(res, 403, { error: 'Suppression réservée à l’auteur ou au Président.' });
+        }
+        const updated = deleteIncidentMessage(
+          buildingId,
+          incId,
+          msgId,
+          canMaintenance(actor.role) ? actor : { fullName: targetMsg.senderName, role: 'resident' }
+        );
+        return sendJson(res, 200, { ok: true, incident: updated });
+      }
+
+      const incItemMatch = urlPath.match(/^\/api\/incidents\/([^/]+)$/);
+      if (incItemMatch && method === 'PUT') {
+        if (!canMaintenance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const incId = decodeURIComponent(incItemMatch[1]);
+        const body = await readJsonBody(req);
+        const updated = updateIncident(buildingId, incId, body?.incident || {}, actor);
+        return sendJson(res, updated ? 200 : 404, {
+          ok: Boolean(updated),
+          ...(updated ? { incident: updated } : { error: 'Incident introuvable.' }),
+        });
+      }
+
+      if (incItemMatch && method === 'DELETE') {
+        if (!canMaintenance(actor.role)) return sendJson(res, 403, { error: 'Accès refusé.' });
+        const incId = decodeURIComponent(incItemMatch[1]);
+        const ok = deleteIncident(buildingId, incId, actor);
+        return sendJson(res, ok ? 200 : 404, { ok, ...(ok ? {} : { error: 'Incident introuvable.' }) });
       }
 
       const incPatchMatch = urlPath.match(/^\/api\/incidents\/([^/]+)$/);

@@ -1156,7 +1156,11 @@ export default {
           cleanIncident.id,
           `Signalement panne : ${cleanIncident.title} (${cleanIncident.location})`
         );
-        return jsonResponse({ ok: true, incident: cleanIncident }, 201);
+        const editToken = signToken(
+          { type: 'msg_owner', msgId: cleanIncident.messages[0].id, exp: Date.now() + SESSION_TTL_MS },
+          sessionSecret
+        );
+        return jsonResponse({ ok: true, incident: cleanIncident, editToken }, 201);
       }
 
       // Incidents & Quotes
@@ -1304,7 +1308,193 @@ export default {
           incId,
           `Message panne "${existingInc.title}" : ${text.slice(0, 80)}`
         );
-        return jsonResponse({ ok: true, message: newMessage, incident: updatedInc }, 201);
+        const editToken = !isBureauSender
+          ? signToken({ type: 'msg_owner', msgId: newMessage.id, exp: Date.now() + SESSION_TTL_MS }, sessionSecret)
+          : undefined;
+        return jsonResponse(
+          { ok: true, message: newMessage, incident: updatedInc, ...(editToken ? { editToken } : {}) },
+          201
+        );
+      }
+
+      if (incMessagesMatch && method === 'DELETE') {
+        if (!canMaintenance(actor.role)) {
+          return jsonResponse({ error: 'Vidage de discussion réservé au Président ou Resp. Technique.' }, 403);
+        }
+        const incId = decodeURIComponent(incMessagesMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        let updatedInc = null;
+        const nextIncidents = (state.incidents || []).map((inc) => {
+          if (inc.id !== incId) return inc;
+          updatedInc = { ...inc, messages: [] };
+          return updatedInc;
+        });
+        if (!updatedInc) return jsonResponse({ error: 'Incident introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, { ...state, incidents: nextIncidents });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          actor,
+          'CLEAR_DISCUSSION',
+          'incident',
+          incId,
+          `Discussion vidée sur "${updatedInc.title}"`
+        );
+        return jsonResponse({ ok: true, incident: updatedInc });
+      }
+
+      const incMsgItemMatch = urlPath.match(/^\/api\/incidents\/([^/]+)\/messages\/([^/]+)$/);
+      if (incMsgItemMatch && method === 'PUT') {
+        const incId = decodeURIComponent(incMsgItemMatch[1]);
+        const msgId = decodeURIComponent(incMsgItemMatch[2]);
+        const body = await readJsonBody(request);
+        const text = String(body?.text || '').trim().slice(0, 800);
+        if (!text) return jsonResponse({ error: 'Veuillez saisir un message.' }, 400);
+
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const existingInc = (state.incidents || []).find((inc) => inc.id === incId);
+        if (!existingInc) return jsonResponse({ error: 'Incident introuvable.' }, 404);
+        const targetMsg = (existingInc.messages || []).find((m) => m.id === msgId);
+        if (!targetMsg) return jsonResponse({ error: 'Message introuvable.' }, 404);
+
+        const tokenClaims = body?.editToken ? verifyToken(String(body.editToken), sessionSecret) : null;
+        const isOwnerViaToken =
+          tokenClaims?.type === 'msg_owner' && tokenClaims?.msgId === msgId && targetMsg.senderRole === 'resident';
+        if (!canMaintenance(actor.role) && !isOwnerViaToken) {
+          return jsonResponse({ error: 'Modification réservée à l’auteur ou au Président.' }, 403);
+        }
+
+        let updatedInc = null;
+        const nowIso = new Date().toISOString();
+        const nextIncidents = (state.incidents || []).map((inc) => {
+          if (inc.id !== incId) return inc;
+          updatedInc = {
+            ...inc,
+            messages: (inc.messages || []).map((m) =>
+              m.id === msgId ? { ...m, text, editedAt: nowIso } : m
+            ),
+          };
+          return updatedInc;
+        });
+        await saveBuildingState(sql, buildingId, { ...state, incidents: nextIncidents });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          canMaintenance(actor.role) ? actor : { fullName: targetMsg.senderName, role: 'resident' },
+          'EDIT_INCIDENT_MESSAGE',
+          'incident',
+          incId,
+          `Message modifié dans "${existingInc.title}" : ${text.slice(0, 80)}`
+        );
+        return jsonResponse({ ok: true, incident: updatedInc });
+      }
+
+      if (incMsgItemMatch && method === 'DELETE') {
+        const incId = decodeURIComponent(incMsgItemMatch[1]);
+        const msgId = decodeURIComponent(incMsgItemMatch[2]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const existingInc = (state.incidents || []).find((inc) => inc.id === incId);
+        if (!existingInc) return jsonResponse({ error: 'Incident introuvable.' }, 404);
+        const targetMsg = (existingInc.messages || []).find((m) => m.id === msgId);
+        if (!targetMsg) return jsonResponse({ error: 'Message introuvable.' }, 404);
+
+        const queryToken = reqUrl.searchParams.get('editToken') || '';
+        const tokenClaims = queryToken ? verifyToken(queryToken, sessionSecret) : null;
+        const isOwnerViaToken =
+          tokenClaims?.type === 'msg_owner' && tokenClaims?.msgId === msgId && targetMsg.senderRole === 'resident';
+        if (!canMaintenance(actor.role) && !isOwnerViaToken) {
+          return jsonResponse({ error: 'Suppression réservée à l’auteur ou au Président.' }, 403);
+        }
+
+        let updatedInc = null;
+        const nextIncidents = (state.incidents || []).map((inc) => {
+          if (inc.id !== incId) return inc;
+          updatedInc = {
+            ...inc,
+            messages: (inc.messages || []).filter((m) => m.id !== msgId),
+          };
+          return updatedInc;
+        });
+        await saveBuildingState(sql, buildingId, { ...state, incidents: nextIncidents });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          canMaintenance(actor.role) ? actor : { fullName: targetMsg.senderName, role: 'resident' },
+          'DELETE_INCIDENT_MESSAGE',
+          'incident',
+          incId,
+          `Message supprimé dans "${existingInc.title}"`
+        );
+        return jsonResponse({ ok: true, incident: updatedInc });
+      }
+
+      const incItemMatch = urlPath.match(/^\/api\/incidents\/([^/]+)$/);
+      if (incItemMatch && method === 'PUT') {
+        if (!canMaintenance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const incId = decodeURIComponent(incItemMatch[1]);
+        const body = await readJsonBody(request);
+        const patch = body?.incident;
+        if (!patch || !String(patch.title || '').trim()) {
+          return jsonResponse({ error: 'Intitulé invalide.' }, 400);
+        }
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        let updatedInc = null;
+        const nextIncidents = (state.incidents || []).map((inc) => {
+          if (inc.id !== incId) return inc;
+          updatedInc = {
+            ...inc,
+            title: String(patch.title).trim(),
+            category: patch.category || inc.category,
+            location: String(patch.location ?? inc.location).trim(),
+            floor: Number.isFinite(Number(patch.floor)) ? Number(patch.floor) : inc.floor,
+            priority: patch.priority || inc.priority,
+            description: String(patch.description ?? inc.description ?? '').trim(),
+            reportedBy: String(patch.reportedBy ?? inc.reportedBy).trim() || inc.reportedBy,
+            assignedVendor: patch.assignedVendor !== undefined ? patch.assignedVendor : inc.assignedVendor,
+            estimatedCostDZD:
+              patch.estimatedCostDZD !== undefined ? Number(patch.estimatedCostDZD) : inc.estimatedCostDZD,
+          };
+          return updatedInc;
+        });
+        if (!updatedInc) return jsonResponse({ error: 'Incident introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, { ...state, incidents: nextIncidents });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          actor,
+          'UPDATE_INCIDENT',
+          'incident',
+          incId,
+          `Modification panne : ${updatedInc.title}`
+        );
+        return jsonResponse({ ok: true, incident: updatedInc });
+      }
+
+      if (incItemMatch && method === 'DELETE') {
+        if (!canMaintenance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
+        const incId = decodeURIComponent(incItemMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false, error: 'Bâtiment introuvable.' }, 404);
+        const targetInc = (state.incidents || []).find((inc) => inc.id === incId);
+        if (!targetInc) return jsonResponse({ ok: false, error: 'Incident introuvable.' }, 404);
+        await saveBuildingState(sql, buildingId, {
+          ...state,
+          incidents: (state.incidents || []).filter((inc) => inc.id !== incId),
+        });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          actor,
+          'DELETE_INCIDENT',
+          'incident',
+          incId,
+          `Suppression panne & discussion : ${targetInc.title}`
+        );
+        return jsonResponse({ ok: true });
       }
 
       const incPatchMatch = urlPath.match(/^\/api\/incidents\/([^/]+)$/);
