@@ -10,6 +10,7 @@ import {
   BuildingSummary,
   HouseRuleSection,
   Incident,
+  IncidentMessage,
   IncidentStatus,
   Notice,
   PaymentRecord,
@@ -38,6 +39,7 @@ import {
   createBuildingRemote,
   deletePaymentRemote,
   deleteTransactionRemote,
+  fetchIncidentMessagesRemote,
   fetchRemoteState,
   fetchServerStatus,
   logoutBureau,
@@ -47,6 +49,7 @@ import {
   ResidentIncidentReportPayload,
   seedRemoteStateIfEmpty,
   selectIncidentQuoteRemote,
+  sendIncidentMessageRemote,
   toggleVoteRemote,
   updateApartmentRemote,
   updateBudgetRemote,
@@ -86,7 +89,12 @@ interface AppStoreValue {
   updatePayment: (payment: PaymentRecord) => Promise<void>;
   deletePayment: (paymentId: string) => Promise<void>;
   addIncident: (incident: Incident) => Promise<void>;
-  reportResidentIncident: (payload: ResidentIncidentReportPayload) => Promise<boolean>;
+  reportResidentIncident: (payload: ResidentIncidentReportPayload) => Promise<Incident | null>;
+  sendIncidentMessage: (
+    incidentId: string,
+    payload: { text: string; senderName?: string; apartmentNumber?: string }
+  ) => Promise<IncidentMessage | null>;
+  syncIncidentMessages: (incidentId: string) => Promise<void>;
   updateIncidentStatus: (
     incidentId: string,
     newStatus: IncidentStatus,
@@ -451,18 +459,24 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   );
 
   const reportResidentIncident = useCallback(
-    async (payload: ResidentIncidentReportPayload): Promise<boolean> => {
+    async (payload: ResidentIncidentReportPayload): Promise<Incident | null> => {
       if (serverConnected) {
         const res = await reportResidentIncidentRemote(activeBuildingId, payload);
         if (!res.ok || !res.data?.incident) {
           toast.error(res.error || 'Impossible d’envoyer le signalement');
-          return false;
+          return null;
         }
         persistLocal({ ...data, incidents: [res.data.incident, ...data.incidents] }, activeBuildingId);
         toast.success(res.data.incident.title);
-        return true;
+        return res.data.incident;
       }
 
+      const nowIso = new Date().toISOString();
+      const effectiveReporter = payload.reportedBy.trim() || 'Résident du bâtiment';
+      const openingText =
+        payload.initialMessage?.trim() ||
+        payload.description.trim() ||
+        `Signalement : ${payload.title.trim()} (${payload.location.trim()})`;
       const localInc: Incident = {
         id: `inc-res-${Date.now()}`,
         title: payload.title.trim(),
@@ -472,10 +486,20 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         priority: payload.priority,
         status: 'signale',
         description: payload.description.trim(),
-        reportedBy: payload.reportedBy.trim() || 'Résident du bâtiment',
-        reportedDate: new Date().toISOString(),
+        reportedBy: effectiveReporter,
+        reportedDate: nowIso,
         estimatedCostDZD: 0,
         quotes: [],
+        messages: [
+          {
+            id: `msg-${Date.now()}`,
+            senderRole: 'resident',
+            senderName: effectiveReporter,
+            ...(payload.apartmentNumber ? { apartmentNumber: payload.apartmentNumber } : {}),
+            text: openingText,
+            timestamp: nowIso,
+          },
+        ],
       };
       persistLocal({ ...data, incidents: [localInc, ...data.incidents] }, activeBuildingId);
       logLocal(
@@ -486,32 +510,137 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         { fullName: localInc.reportedBy, role: 'resident' }
       );
       toast.success(localInc.title);
-      return true;
+      return localInc;
     },
     [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
   );
 
+  const sendIncidentMessage = useCallback(
+    async (
+      incidentId: string,
+      payload: { text: string; senderName?: string; apartmentNumber?: string }
+    ): Promise<IncidentMessage | null> => {
+      const cleanText = payload.text.trim();
+      if (!cleanText) return null;
+
+      if (serverConnected) {
+        const res = await sendIncidentMessageRemote(activeBuildingId, incidentId, {
+          text: cleanText,
+          senderName: payload.senderName,
+          apartmentNumber: payload.apartmentNumber,
+        });
+        if (!res.ok || !res.data?.message) {
+          toast.error(res.error || 'Impossible d’envoyer le message');
+          return null;
+        }
+        const serverInc = res.data.incident;
+        const nextIncidents = data.incidents.map((inc) =>
+          inc.id === incidentId
+            ? serverInc || { ...inc, messages: [...(inc.messages || []), res.data!.message] }
+            : inc
+        );
+        persistLocal({ ...data, incidents: nextIncidents }, activeBuildingId);
+        return res.data.message;
+      }
+
+      const isBureauSender = isBureauRole(role);
+      const senderRole: UserRole = isBureauSender ? role : 'resident';
+      const senderName = isBureauSender
+        ? user.fullName
+        : payload.senderName?.trim() ||
+          (payload.apartmentNumber ? `Résident (${payload.apartmentNumber})` : 'Résident');
+      const localMsg: IncidentMessage = {
+        id: `msg-local-${Date.now()}`,
+        senderRole,
+        senderName,
+        ...(!isBureauSender && payload.apartmentNumber ? { apartmentNumber: payload.apartmentNumber } : {}),
+        text: cleanText,
+        timestamp: new Date().toISOString(),
+      };
+      const targetInc = data.incidents.find((i) => i.id === incidentId);
+      const nextIncidents = data.incidents.map((inc) =>
+        inc.id === incidentId
+          ? { ...inc, messages: [...(inc.messages || []), localMsg].slice(-200) }
+          : inc
+      );
+      persistLocal({ ...data, incidents: nextIncidents }, activeBuildingId);
+      logLocal(
+        'INCIDENT_MESSAGE',
+        'incident',
+        `Message panne "${targetInc?.title || incidentId}" : ${cleanText.slice(0, 80)}`,
+        undefined,
+        { fullName: senderName, role: senderRole }
+      );
+      return localMsg;
+    },
+    [data, serverConnected, activeBuildingId, role, user.fullName, persistLocal, logLocal, toast]
+  );
+
+  const syncIncidentMessages = useCallback(
+    async (incidentId: string) => {
+      if (!serverConnected) return;
+      const res = await fetchIncidentMessagesRemote(activeBuildingId, incidentId);
+      if (!res.ok || !res.data) return;
+      setData((prev) => ({
+        ...prev,
+        incidents: prev.incidents.map((inc) =>
+          inc.id === incidentId
+            ? {
+                ...inc,
+                messages: res.data!.messages || [],
+                status: res.data!.status || inc.status,
+                assignedVendor: res.data!.assignedVendor ?? inc.assignedVendor,
+                resolutionNotes: res.data!.resolutionNotes ?? inc.resolutionNotes,
+              }
+            : inc
+        ),
+      }));
+    },
+    [serverConnected, activeBuildingId]
+  );
+
   const updateIncidentStatus = useCallback(
     async (incidentId: string, newStatus: IncidentStatus, actualCost?: number, resolutionNotes?: string) => {
+      let serverUpdatedInc: Incident | undefined;
       if (serverConnected) {
         const res = await updateIncidentStatusRemote(activeBuildingId, incidentId, newStatus, actualCost, resolutionNotes);
         if (!res.ok) {
           toast.error(res.error || 'Erreur');
           return;
         }
+        serverUpdatedInc = (res.data as { incident?: Incident } | undefined)?.incident;
       }
       const targetInc = data.incidents.find((i) => i.id === incidentId);
-      const updatedIncidents = data.incidents.map((inc) =>
-        inc.id === incidentId
-          ? {
-              ...inc,
-              status: newStatus,
-              actualCostDZD: actualCost !== undefined ? actualCost : inc.actualCostDZD,
-              resolvedDate: newStatus === 'resolu' ? new Date().toISOString() : inc.resolvedDate,
-              resolutionNotes: resolutionNotes || inc.resolutionNotes,
-            }
-          : inc
-      );
+      const statusMsgText =
+        newStatus === 'resolu'
+          ? `Panne résolue${resolutionNotes ? ` : ${resolutionNotes}` : '.'}`
+          : newStatus === 'en_cours'
+          ? 'Signalement pris en charge — intervention en cours.'
+          : null;
+      const updatedIncidents = data.incidents.map((inc) => {
+        if (inc.id !== incidentId) return inc;
+        if (serverUpdatedInc) return serverUpdatedInc;
+        const nextMessages = statusMsgText
+          ? [
+              ...(inc.messages || []),
+              {
+                id: `msg-status-${Date.now()}`,
+                senderRole: role,
+                senderName: user.fullName,
+                text: statusMsgText,
+                timestamp: new Date().toISOString(),
+              },
+            ]
+          : inc.messages;
+        return {
+          ...inc,
+          status: newStatus,
+          actualCostDZD: actualCost !== undefined ? actualCost : inc.actualCostDZD,
+          resolvedDate: newStatus === 'resolu' ? new Date().toISOString() : inc.resolvedDate,
+          resolutionNotes: resolutionNotes || inc.resolutionNotes,
+          messages: nextMessages,
+        };
+      });
 
       let updatedTransactions = [...data.transactions];
       if (newStatus === 'resolu' && actualCost && actualCost > 0) {
@@ -543,7 +672,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       );
       toast.success(newStatus === 'resolu' ? 'Incident clôturé' : 'Statut mis à jour');
     },
-    [data, serverConnected, activeBuildingId, persistLocal, logLocal, toast]
+    [data, serverConnected, activeBuildingId, role, user.fullName, persistLocal, logLocal, toast]
   );
 
   const addIncidentQuote = useCallback(
@@ -974,6 +1103,8 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         deletePayment,
         addIncident,
         reportResidentIncident,
+        sendIncidentMessage,
+        syncIncidentMessages,
         updateIncidentStatus,
         addIncidentQuote,
         selectIncidentQuote,

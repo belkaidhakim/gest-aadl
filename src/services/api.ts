@@ -11,6 +11,7 @@ import {
   BureauRole,
   HouseRuleSection,
   Incident,
+  IncidentMessage,
   IncidentStatus,
   ManagedUser,
   Notice,
@@ -353,7 +354,31 @@ export interface ResidentIncidentReportPayload {
   priority: Incident['priority'];
   description: string;
   reportedBy: string;
+  apartmentNumber?: string;
+  initialMessage?: string;
 }
+
+export const fetchIncidentMessagesRemote = (buildingId: string, incidentId: string) =>
+  apiRequest<{
+    ok: boolean;
+    messages: IncidentMessage[];
+    status: IncidentStatus;
+    assignedVendor?: string;
+    resolutionNotes?: string;
+  }>(`/api/incidents/${encodeURIComponent(incidentId)}/messages?buildingId=${encodeURIComponent(buildingId)}`);
+
+export const sendIncidentMessageRemote = (
+  buildingId: string,
+  incidentId: string,
+  payload: { text: string; senderName?: string; apartmentNumber?: string }
+) =>
+  apiRequest<{ ok: boolean; message: IncidentMessage; incident: Incident }>(
+    `/api/incidents/${encodeURIComponent(incidentId)}/messages?buildingId=${encodeURIComponent(buildingId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
 
 export const reportResidentIncidentRemote = (
   buildingId: string,

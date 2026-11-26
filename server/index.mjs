@@ -6,6 +6,7 @@ import {
   UPLOADS_DIR,
   addAssemblyMinutes,
   addIncident,
+  addIncidentMessage,
   addIncidentQuote,
   addNotice,
   addPreventiveTask,
@@ -24,6 +25,7 @@ import {
   getAuditLogs,
   getBuildingState,
   getDefaultBuildingId,
+  getIncidentById,
   getOrCreateSessionSecret,
   getUserById,
   hasAnyBuilding,
@@ -558,6 +560,12 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: 'Veuillez préciser le lieu ou la zone concernée.' });
         }
 
+        const nowIso = new Date().toISOString();
+        const effectiveReporter = reportedBy.length >= 2 ? reportedBy : 'Résident du bâtiment';
+        const apartmentNumber = String(raw.apartmentNumber || '').trim().slice(0, 30);
+        const initialMessage = String(raw.initialMessage || '').trim().slice(0, 800);
+        const openingText = initialMessage || description || `Signalement : ${title} (${location})`;
+
         const cleanIncident = {
           id: `inc-res-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
           title,
@@ -567,10 +575,20 @@ const server = http.createServer(async (req, res) => {
           priority,
           status: 'signale',
           description,
-          reportedBy: reportedBy.length >= 2 ? reportedBy : 'Résident du bâtiment',
-          reportedDate: new Date().toISOString(),
+          reportedBy: effectiveReporter,
+          reportedDate: nowIso,
           estimatedCostDZD: 0,
           quotes: [],
+          messages: [
+            {
+              id: `msg-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+              senderRole: 'resident',
+              senderName: effectiveReporter,
+              ...(apartmentNumber ? { apartmentNumber } : {}),
+              text: openingText,
+              timestamp: nowIso,
+            },
+          ],
         };
 
         const residentActor = {
@@ -607,6 +625,54 @@ const server = http.createServer(async (req, res) => {
         const body = await readJsonBody(req);
         const inc = addIncidentQuote(buildingId, incId, body.quote, actor);
         return sendJson(res, inc ? 200 : 404, { ok: Boolean(inc), incident: inc });
+      }
+
+      const incMessagesMatch = urlPath.match(/^\/api\/incidents\/([^/]+)\/messages$/);
+      if (incMessagesMatch && method === 'GET') {
+        const incId = decodeURIComponent(incMessagesMatch[1]);
+        const target = getIncidentById(buildingId, incId);
+        if (!target) return sendJson(res, 404, { ok: false, error: 'Incident introuvable.' });
+        return sendJson(res, 200, {
+          ok: true,
+          messages: target.messages || [],
+          status: target.status,
+          assignedVendor: target.assignedVendor,
+          resolutionNotes: target.resolutionNotes,
+        });
+      }
+
+      if (incMessagesMatch && method === 'POST') {
+        const incId = decodeURIComponent(incMessagesMatch[1]);
+        const body = await readJsonBody(req);
+        const text = String(body?.text || '').trim().slice(0, 800);
+        if (!text) return sendJson(res, 400, { error: 'Veuillez saisir un message.' });
+
+        const aptNum = String(body?.apartmentNumber || '').trim().slice(0, 30);
+        const rawSender = String(body?.senderName || '').trim().slice(0, 80);
+        const isBureauSender =
+          actor.role === 'president' || actor.role === 'treasurer' || actor.role === 'technical';
+        const senderRole = isBureauSender ? actor.role : 'resident';
+        const senderName = isBureauSender
+          ? actor.fullName
+          : rawSender.length >= 2
+          ? rawSender
+          : aptNum
+          ? `Résident (${aptNum})`
+          : 'Résident';
+
+        const newMessage = {
+          id: `msg-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+          senderRole,
+          senderName,
+          ...(!isBureauSender && aptNum ? { apartmentNumber: aptNum } : {}),
+          text,
+          timestamp: new Date().toISOString(),
+        };
+
+        const msgActor = isBureauSender ? actor : { id: 'resident-portal', username: 'resident', fullName: senderName, role: 'resident' };
+        const resObj = addIncidentMessage(buildingId, incId, newMessage, msgActor);
+        if (!resObj) return sendJson(res, 404, { error: 'Incident introuvable.' });
+        return sendJson(res, 201, { ok: true, ...resObj });
       }
 
       const incPatchMatch = urlPath.match(/^\/api\/incidents\/([^/]+)$/);

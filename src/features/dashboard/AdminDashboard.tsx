@@ -26,6 +26,7 @@ import {
   CalendarClock,
   X,
   BellRing,
+  MessageSquare,
 } from 'lucide-react';
 import { PaymentRecord } from '../../types';
 import {
@@ -795,11 +796,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{incident.description}</p>
                       </div>
 
-                      <div className="sm:text-end shrink-0">
-                        <span className="inline-block text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md">
-                          {incident.assignedVendor || t('awaitingAssignment')}
-                        </span>
-                        <p className="text-[11px] text-slate-400 mt-1">
+                      <div className="sm:text-end shrink-0 space-y-1.5">
+                        <div className="flex sm:justify-end items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              try {
+                                sessionStorage.setItem('gest_aadl_open_chat_inc', incident.id);
+                              } catch {
+                                // ignore
+                              }
+                              onNavigateTab('incidents');
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                            <span>Chat ({(incident.messages || []).length})</span>
+                          </button>
+                          <span className="inline-block text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md">
+                            {incident.assignedVendor || t('awaitingAssignment')}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400">
                           {t('reportedOn')} {formatDateFr(incident.reportedDate, lang)}
                         </p>
                       </div>

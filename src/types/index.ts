@@ -126,6 +126,15 @@ export interface VendorQuote {
   selected?: boolean;
 }
 
+export interface IncidentMessage {
+  id: string;
+  senderRole: UserRole;
+  senderName: string;
+  apartmentNumber?: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface Incident {
   id: string;
   title: string;
@@ -143,6 +152,7 @@ export interface Incident {
   resolvedDate?: string;
   resolutionNotes?: string;
   quotes?: VendorQuote[];
+  messages?: IncidentMessage[];
 }
 
 export interface PreventiveTaskHistory {

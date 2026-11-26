@@ -24,6 +24,7 @@ import {
   X,
   Cloud,
   HardDrive,
+  MessageSquare,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/AppStore';
 import { useI18n } from '../../i18n';
@@ -67,8 +68,15 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
   const [alertsOpen, setAlertsOpen] = useState(false);
 
   const urgentIncidents = data.incidents.filter((i) => i.priority === 'urgente' && i.status !== 'resolu');
+  const awaitingChatIncidents = data.incidents.filter(
+    (i) =>
+      i.status !== 'resolu' &&
+      i.messages &&
+      i.messages.length > 0 &&
+      i.messages[i.messages.length - 1].senderRole === 'resident'
+  );
   const overdueTasks = (data.preventiveTasks || []).filter((task) => getDueStatus(task.nextDueDate) === 'overdue');
-  const totalAlerts = urgentIncidents.length + overdueTasks.length;
+  const totalAlerts = urgentIncidents.length + awaitingChatIncidents.length + overdueTasks.length;
 
   const roleBadgeLabel =
     role === 'president'
@@ -345,6 +353,32 @@ export const BureauLayout: React.FC<BureauLayoutProps> = ({
                     <p className="text-slate-500 py-2">{t('noAlertsText')}</p>
                   ) : (
                     <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                      {awaitingChatIncidents.map((inc) => {
+                        const last = inc.messages![inc.messages!.length - 1];
+                        return (
+                          <button
+                            key={`chat-${inc.id}`}
+                            onClick={() => {
+                              try {
+                                sessionStorage.setItem('gest_aadl_open_chat_inc', inc.id);
+                              } catch {
+                                // ignore
+                              }
+                              onNavigate('incidents');
+                              setAlertsOpen(false);
+                            }}
+                            className="w-full text-start p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                          >
+                            <div className="font-bold truncate flex items-center gap-1">
+                              <MessageSquare className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{inc.title}</span>
+                            </div>
+                            <div className="text-[10px] opacity-85 truncate">
+                              {last.senderName} : « {last.text} »
+                            </div>
+                          </button>
+                        );
+                      })}
                       {urgentIncidents.map((inc) => (
                         <button
                           key={inc.id}

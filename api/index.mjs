@@ -6,6 +6,9 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RESIDENT_REPORT_WINDOW_MS = 10 * 60 * 1000;
 const RESIDENT_REPORT_MAX = 5;
 const residentReportBuckets = new Map();
+const RESIDENT_CHAT_WINDOW_MS = 5 * 60 * 1000;
+const RESIDENT_CHAT_MAX = 20;
+const residentChatBuckets = new Map();
 
 const ALLOWED_INCIDENT_CATEGORIES = new Set([
   'ascenseur',
@@ -391,6 +394,24 @@ function checkResidentReportRateLimit(request) {
   }
   recent.push(now);
   residentReportBuckets.set(ip, recent);
+  return true;
+}
+
+function checkResidentChatRateLimit(request) {
+  const ip =
+    String(request.headers.get('x-forwarded-for') || '')
+      .split(',')[0]
+      .trim() ||
+    request.headers.get('x-real-ip') ||
+    'edge';
+  const now = Date.now();
+  const recent = (residentChatBuckets.get(ip) || []).filter((ts) => now - ts < RESIDENT_CHAT_WINDOW_MS);
+  if (recent.length >= RESIDENT_CHAT_MAX) {
+    residentChatBuckets.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  residentChatBuckets.set(ip, recent);
   return true;
 }
 
@@ -1015,6 +1036,12 @@ export default {
         const state = await getBuildingState(sql, buildingId);
         if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
 
+        const nowIso = new Date().toISOString();
+        const effectiveReporter = reportedBy.length >= 2 ? reportedBy : 'Résident du bâtiment';
+        const apartmentNumber = String(raw.apartmentNumber || '').trim().slice(0, 30);
+        const initialMessage = String(raw.initialMessage || '').trim().slice(0, 800);
+        const openingText = initialMessage || description || `Signalement : ${title} (${location})`;
+
         const cleanIncident = {
           id: `inc-res-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
           title,
@@ -1024,10 +1051,20 @@ export default {
           priority,
           status: 'signale',
           description,
-          reportedBy: reportedBy.length >= 2 ? reportedBy : 'Résident du bâtiment',
-          reportedDate: new Date().toISOString(),
+          reportedBy: effectiveReporter,
+          reportedDate: nowIso,
           estimatedCostDZD: 0,
           quotes: [],
+          messages: [
+            {
+              id: `msg-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+              senderRole: 'resident',
+              senderName: effectiveReporter,
+              ...(apartmentNumber ? { apartmentNumber } : {}),
+              text: openingText,
+              timestamp: nowIso,
+            },
+          ],
         };
 
         await saveBuildingState(sql, buildingId, {
@@ -1115,6 +1152,85 @@ export default {
         return jsonResponse({ ok: true, incident: updatedInc });
       }
 
+      const incMessagesMatch = urlPath.match(/^\/api\/incidents\/([^/]+)\/messages$/);
+      if (incMessagesMatch && method === 'GET') {
+        const incId = decodeURIComponent(incMessagesMatch[1]);
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ ok: false, error: 'Bâtiment introuvable.' }, 404);
+        const target = (state.incidents || []).find((inc) => inc.id === incId);
+        if (!target) return jsonResponse({ ok: false, error: 'Incident introuvable.' }, 404);
+        return jsonResponse({
+          ok: true,
+          messages: target.messages || [],
+          status: target.status,
+          assignedVendor: target.assignedVendor,
+          resolutionNotes: target.resolutionNotes,
+        });
+      }
+
+      if (incMessagesMatch && method === 'POST') {
+        const incId = decodeURIComponent(incMessagesMatch[1]);
+        if (actor.role === 'resident' && !checkResidentChatRateLimit(request)) {
+          return jsonResponse(
+            { error: 'Trop de messages envoyés récemment. Veuillez patienter quelques instants.' },
+            429
+          );
+        }
+        const body = await readJsonBody(request);
+        const text = String(body?.text || '').trim().slice(0, 800);
+        if (!text) {
+          return jsonResponse({ error: 'Veuillez saisir un message.' }, 400);
+        }
+        const state = await getBuildingState(sql, buildingId);
+        if (!state) return jsonResponse({ error: 'Bâtiment introuvable.' }, 404);
+        const existingInc = (state.incidents || []).find((inc) => inc.id === incId);
+        if (!existingInc) return jsonResponse({ error: 'Incident introuvable.' }, 404);
+
+        const aptNum = String(body?.apartmentNumber || '').trim().slice(0, 30);
+        const rawSender = String(body?.senderName || '').trim().slice(0, 80);
+        const isBureauSender =
+          actor.role === 'president' || actor.role === 'treasurer' || actor.role === 'technical';
+        const senderRole = isBureauSender ? actor.role : 'resident';
+        const senderName = isBureauSender
+          ? actor.fullName
+          : rawSender.length >= 2
+          ? rawSender
+          : aptNum
+          ? `Résident (${aptNum})`
+          : 'Résident';
+
+        const newMessage = {
+          id: `msg-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+          senderRole,
+          senderName,
+          ...(!isBureauSender && aptNum ? { apartmentNumber: aptNum } : {}),
+          text,
+          timestamp: new Date().toISOString(),
+        };
+
+        let updatedInc = null;
+        const nextIncidents = (state.incidents || []).map((inc) => {
+          if (inc.id !== incId) return inc;
+          updatedInc = {
+            ...inc,
+            messages: [...(inc.messages || []), newMessage].slice(-200),
+          };
+          return updatedInc;
+        });
+
+        await saveBuildingState(sql, buildingId, { ...state, incidents: nextIncidents });
+        await writeAuditLog(
+          sql,
+          buildingId,
+          isBureauSender ? actor : { fullName: senderName, role: 'resident' },
+          'INCIDENT_MESSAGE',
+          'incident',
+          incId,
+          `Message panne "${existingInc.title}" : ${text.slice(0, 80)}`
+        );
+        return jsonResponse({ ok: true, message: newMessage, incident: updatedInc }, 201);
+      }
+
       const incPatchMatch = urlPath.match(/^\/api\/incidents\/([^/]+)$/);
       if (incPatchMatch && method === 'PATCH') {
         if (!canMaintenance(actor.role)) return jsonResponse({ error: 'Accès refusé.' }, 403);
@@ -1123,14 +1239,33 @@ export default {
         const state = await getBuildingState(sql, buildingId);
         if (!state) return jsonResponse({ ok: false }, 404);
         let updatedInc = null;
+        const statusMsgText =
+          body.status === 'resolu'
+            ? `Panne résolue${body.resolutionNotes ? ` : ${body.resolutionNotes}` : '.'}`
+            : body.status === 'en_cours'
+            ? 'Signalement pris en charge — intervention en cours.'
+            : null;
         const nextIncidents = (state.incidents || []).map((inc) => {
           if (inc.id !== incId) return inc;
+          const nextMessages = statusMsgText
+            ? [
+                ...(inc.messages || []),
+                {
+                  id: `msg-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+                  senderRole: actor.role,
+                  senderName: actor.fullName,
+                  text: statusMsgText,
+                  timestamp: new Date().toISOString(),
+                },
+              ].slice(-200)
+            : inc.messages || [];
           updatedInc = {
             ...inc,
             status: body.status,
             actualCostDZD: body.actualCost !== undefined ? Number(body.actualCost) : inc.actualCostDZD,
             resolvedDate: body.status === 'resolu' ? new Date().toISOString() : inc.resolvedDate,
             resolutionNotes: body.resolutionNotes || inc.resolutionNotes,
+            messages: nextMessages,
           };
           return updatedInc;
         });

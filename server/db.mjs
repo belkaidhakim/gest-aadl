@@ -819,17 +819,67 @@ export function addIncident(buildingId, inc, actor) {
   });
 }
 
-export function updateIncidentStatusAtomic(buildingId, incId, newStatus, actualCost, resolutionNotes, actor) {
+export function getIncidentById(buildingId, incId) {
+  const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
+  return row ? JSON.parse(row.payload) : null;
+}
+
+export function addIncidentMessage(buildingId, incId, message, actor) {
   return runInTransaction(() => {
     const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
     if (!row) return null;
     const inc = JSON.parse(row.payload);
     const updated = {
       ...inc,
+      messages: [...(inc.messages || []), message].slice(-200),
+    };
+    db.prepare('UPDATE incidents SET payload = ? WHERE building_id = ? AND id = ?').run(
+      JSON.stringify(updated),
+      buildingId,
+      incId
+    );
+    writeAuditLog(
+      buildingId,
+      actor,
+      'INCIDENT_MESSAGE',
+      'incident',
+      incId,
+      `Message panne "${inc.title}" : ${message.text.slice(0, 80)}`
+    );
+    return { message, incident: updated };
+  });
+}
+
+export function updateIncidentStatusAtomic(buildingId, incId, newStatus, actualCost, resolutionNotes, actor) {
+  return runInTransaction(() => {
+    const row = db.prepare('SELECT payload FROM incidents WHERE building_id = ? AND id = ?').get(buildingId, incId);
+    if (!row) return null;
+    const inc = JSON.parse(row.payload);
+    const statusMsgText =
+      newStatus === 'resolu'
+        ? `Panne résolue${resolutionNotes ? ` : ${resolutionNotes}` : '.'}`
+        : newStatus === 'en_cours'
+        ? 'Signalement pris en charge — intervention en cours.'
+        : null;
+    const nextMessages = statusMsgText
+      ? [
+          ...(inc.messages || []),
+          {
+            id: `msg-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+            senderRole: actor?.role || 'president',
+            senderName: actor?.fullName || 'Syndic',
+            text: statusMsgText,
+            timestamp: new Date().toISOString(),
+          },
+        ].slice(-200)
+      : inc.messages || [];
+    const updated = {
+      ...inc,
       status: newStatus,
       actualCostDZD: actualCost !== undefined ? Number(actualCost) : inc.actualCostDZD,
       resolvedDate: newStatus === 'resolu' ? new Date().toISOString() : inc.resolvedDate,
       resolutionNotes: resolutionNotes || inc.resolutionNotes,
+      messages: nextMessages,
     };
 
     db.prepare('UPDATE incidents SET status = ?, payload = ? WHERE building_id = ? AND id = ?').run(

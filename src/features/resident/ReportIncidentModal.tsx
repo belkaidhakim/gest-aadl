@@ -10,17 +10,23 @@ import {
   DoorClosed,
   Phone,
   Send,
+  MessageSquare,
 } from 'lucide-react';
-import { Apartment, IncidentCategory, IncidentPriority } from '../../types';
+import { Apartment, Incident, IncidentCategory, IncidentPriority } from '../../types';
 import { ResidentIncidentReportPayload } from '../../services/api';
 import { useI18n } from '../../i18n';
+import {
+  loadSavedResidentIdentity,
+  saveResidentIdentity,
+} from '../../components/IncidentChatDrawer';
 
 interface ReportIncidentModalProps {
   apartments: Apartment[];
   totalFloors: number;
   syndicPhone: string;
   onClose: () => void;
-  onSubmit: (payload: ResidentIncidentReportPayload) => Promise<boolean>;
+  onSubmit: (payload: ResidentIncidentReportPayload) => Promise<Incident | null>;
+  onIncidentCreated?: (incident: Incident) => void;
 }
 
 export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
@@ -29,8 +35,10 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
   syndicPhone,
   onClose,
   onSubmit,
+  onIncidentCreated,
 }) => {
   const { lang, t } = useI18n();
+  const savedIdentity = loadSavedResidentIdentity(apartments[0]?.number || '');
 
   const [category, setCategory] = useState<IncidentCategory>('ascenseur');
   const [priority, setPriority] = useState<IncidentPriority>('normale');
@@ -40,8 +48,8 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
   );
   const [title, setTitle] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [apartmentNumber, setApartmentNumber] = useState<string>(apartments[0]?.number || '');
-  const [reporterName, setReporterName] = useState<string>('');
+  const [apartmentNumber, setApartmentNumber] = useState<string>(savedIdentity.apartmentNumber);
+  const [reporterName, setReporterName] = useState<string>(savedIdentity.name);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -116,7 +124,8 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
 
     setSubmitting(true);
     try {
-      const ok = await onSubmit({
+      saveResidentIdentity(apartmentNumber, cleanName);
+      const created = await onSubmit({
         title: title.trim(),
         category,
         location: location.trim(),
@@ -124,9 +133,11 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
         priority,
         description: description.trim(),
         reportedBy,
+        apartmentNumber: apartmentNumber || undefined,
       });
-      if (ok) {
+      if (created) {
         onClose();
+        onIncidentCreated?.(created);
       }
     } finally {
       setSubmitting(false);
@@ -338,10 +349,12 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
             </div>
           </div>
 
-          {/* Description */}
+          {/* Description / First Chat Message */}
           <div>
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-              {lang === 'ar' ? 'تفاصيل إضافية' : 'Précisions utiles'}
+              {lang === 'ar'
+                ? 'تفاصيل العطل / رسالتك الأولى للرئيس'
+                : 'Détails & premier message au Président'}
             </label>
             <textarea
               rows={3}
@@ -355,6 +368,16 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
               }
               className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
+          </div>
+
+          {/* Direct Chat Callout */}
+          <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/70 flex items-start gap-2.5 text-[11px] text-emerald-900 dark:text-emerald-200">
+            <MessageSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <span>
+              {lang === 'ar'
+                ? 'بمجرد إرسال البلاغ، ستُفتح تلقائياً نافذة محادثة مباشرة (Chat) مع رئيس مكتب السانديك لمتابعة الإصلاح لحظة بلحظة.'
+                : 'Dès validation, un canal de discussion direct (Chat) avec le Président du Syndic s’ouvrira automatiquement pour suivre l’intervention.'}
+            </span>
           </div>
 
           {/* Footer */}
@@ -374,8 +397,8 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
                     ? 'جاري الإرسال...'
                     : 'Envoi en cours...'
                   : lang === 'ar'
-                  ? 'إرسال البلاغ'
-                  : 'Envoyer le signalement'}
+                  ? 'إرسال وفتح المحادثة'
+                  : 'Signaler & Ouvrir le Chat'}
               </span>
             </button>
           </div>

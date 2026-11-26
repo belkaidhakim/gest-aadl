@@ -16,7 +16,9 @@ import {
   PieChart,
   Siren,
   AlertTriangle,
+  MessageSquare,
 } from 'lucide-react';
+import { Incident } from '../../types';
 import {
   formatDZD,
   formatDateFr,
@@ -30,6 +32,7 @@ import { useAppStore } from '../../stores/AppStore';
 import { CircularGauge, DonutChart } from '../../components/ui/Charts';
 import { AppTab } from '../../app/useRoute';
 import { isCarryOverTransaction } from '../treasury/treasuryHelpers';
+import { IncidentChatDrawer } from '../../components/IncidentChatDrawer';
 import { ReportIncidentModal } from './ReportIncidentModal';
 import residenceHeroImg from '../../assets/images/aadl_residence_complex_1794390110787.jpg';
 
@@ -41,6 +44,7 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
   const { lang, isRtl, t } = useI18n();
   const { data, reportResidentIncident } = useAppStore();
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [chatIncident, setChatIncident] = useState<Incident | null>(null);
   const currentMonth = getCurrentMonthStr();
 
   const occupiedApartments = data.apartments.filter((a) => a.occupancy !== 'vacant').length;
@@ -473,11 +477,16 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
               <div className="space-y-3">
                 {openIncidents.slice(0, 4).map((inc) => {
                   const stepIdx = inc.status === 'en_cours' ? 2 : 1;
+                  const msgCount = (inc.messages || []).length;
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={inc.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onNavigateTab('incidents')}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') onNavigateTab('incidents');
+                      }}
                       className="w-full text-start p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors space-y-2.5 cursor-pointer"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -496,9 +505,25 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                           </div>
                           <h3 className="text-sm font-bold text-slate-900 dark:text-white">{inc.title}</h3>
                         </div>
-                        <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-center">
-                          {inc.assignedVendor || t('assignedDefault')}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setChatIncident(inc);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold cursor-pointer shadow-2xs"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                            <span>
+                              {lang === 'ar' ? 'محادثة الرئيس' : 'Chat Président'}
+                              {msgCount > 0 ? ` (${msgCount})` : ''}
+                            </span>
+                          </button>
+                          <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
+                            {inc.assignedVendor || t('assignedDefault')}
+                          </span>
+                        </div>
                       </div>
 
                       {/* 3-Step Visual Progress Bar */}
@@ -524,7 +549,7 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
                           <span className="text-slate-400">{lang === 'ar' ? '3. تم الحل' : '3. Résolu'}</span>
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -754,8 +779,17 @@ export const ResidentEssentialPage: React.FC<ResidentEssentialPageProps> = ({ on
           syndicPhone={data.building.syndicPhone}
           onClose={() => setIsReportModalOpen(false)}
           onSubmit={reportResidentIncident}
+          onIncidentCreated={(inc) => setChatIncident(inc)}
         />
       )}
+
+      <IncidentChatDrawer
+        incident={chatIncident}
+        apartments={data.apartments}
+        syndicPresident={data.building.syndicPresident}
+        syndicPhone={data.building.syndicPhone}
+        onClose={() => setChatIncident(null)}
+      />
     </div>
   );
 };

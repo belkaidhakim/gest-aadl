@@ -12,6 +12,7 @@ import {
   CalendarClock,
   Scale,
   ShieldCheck,
+  MessageSquare,
 } from 'lucide-react';
 import {
   Incident,
@@ -24,6 +25,7 @@ import { useI18n } from '../../i18n';
 import { useAppStore } from '../../stores/AppStore';
 import { canManageMaintenance } from '../../utils/permissions';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { IncidentChatDrawer } from '../../components/IncidentChatDrawer';
 import { AddQuoteModal, NewIncidentModal, ResolveIncidentModal } from './IncidentModals';
 import { CompletePreventiveModal, NewPreventiveModal } from './PreventiveModals';
 
@@ -50,6 +52,7 @@ export const MaintenancePage: React.FC = () => {
   const [quoteIncident, setQuoteIncident] = useState<Incident | null>(null);
   const [isNewPrevModalOpen, setIsNewPrevModalOpen] = useState(false);
   const [completingTask, setCompletingTask] = useState<PreventiveTask | null>(null);
+  const [chatIncident, setChatIncident] = useState<Incident | null>(null);
 
   useEffect(() => {
     try {
@@ -58,10 +61,19 @@ export const MaintenancePage: React.FC = () => {
         setSubTab('preventive');
         sessionStorage.removeItem('gest_aadl_maint_subtab');
       }
+      const openChatId = sessionStorage.getItem('gest_aadl_open_chat_inc');
+      if (openChatId) {
+        const found = data.incidents.find((i) => i.id === openChatId);
+        if (found) {
+          setSubTab('curative');
+          setChatIncident(found);
+        }
+        sessionStorage.removeItem('gest_aadl_open_chat_inc');
+      }
     } catch {
       // ignore
     }
-  }, []);
+  }, [data.incidents]);
 
   const quoteThreshold = data.building.quoteThresholdDZD || 20000;
   const preventiveTasks = data.preventiveTasks || [];
@@ -273,6 +285,9 @@ export const MaintenancePage: React.FC = () => {
             {filteredIncidents.map((inc) => {
               const isResolved = inc.status === 'resolu';
               const quotes = inc.quotes || [];
+              const messages = inc.messages || [];
+              const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+              const awaitingReply = !isResolved && lastMsg?.senderRole === 'resident';
               const needsMoreQuotes =
                 !isResolved &&
                 (inc.estimatedCostDZD || 0) >= quoteThreshold &&
@@ -349,6 +364,28 @@ export const MaintenancePage: React.FC = () => {
                         </span>
                       )}
 
+                      <button
+                        type="button"
+                        onClick={() => setChatIncident(inc)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer border transition-colors ${
+                          awaitingReply
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs'
+                            : 'bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                        }`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>
+                          {awaitingReply
+                            ? lang === 'ar'
+                              ? `رد على الساكن (${messages.length})`
+                              : `Répondre (${messages.length})`
+                            : lang === 'ar'
+                            ? `محادثة (${messages.length})`
+                            : `Chat (${messages.length})`}
+                        </span>
+                        {awaitingReply && <span className="w-2 h-2 rounded-full bg-amber-300 animate-pulse" />}
+                      </button>
+
                       {canManage && !isResolved && (
                         <>
                           {inc.status === 'signale' && (
@@ -381,6 +418,25 @@ export const MaintenancePage: React.FC = () => {
                     <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
                       {inc.description}
                     </p>
+                  )}
+
+                  {lastMsg && (
+                    <button
+                      type="button"
+                      onClick={() => setChatIncident(inc)}
+                      className="w-full text-start p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2 text-xs transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span className="font-bold text-slate-800 dark:text-slate-200 shrink-0">
+                          {lastMsg.senderName} :
+                        </span>
+                        <span className="text-slate-600 dark:text-slate-300 truncate">{lastMsg.text}</span>
+                      </div>
+                      <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">
+                        {lang === 'ar' ? 'فتح ←' : 'Ouvrir →'}
+                      </span>
+                    </button>
                   )}
 
                   {/* Quote comparator / rule */}
@@ -632,6 +688,14 @@ export const MaintenancePage: React.FC = () => {
           onSubmit={addPreventiveTask}
         />
       )}
+
+      <IncidentChatDrawer
+        incident={chatIncident}
+        apartments={data.apartments}
+        syndicPresident={data.building.syndicPresident}
+        syndicPhone={data.building.syndicPhone}
+        onClose={() => setChatIncident(null)}
+      />
 
       {completingTask && (
         <CompletePreventiveModal

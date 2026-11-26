@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Siren,
   Plus,
+  MessageSquare,
 } from 'lucide-react';
 import {
   Incident,
@@ -26,6 +27,7 @@ import { useAppStore } from '../../stores/AppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SlideOverDrawer } from '../../components/ui/SlideOverDrawer';
 import { AppTab } from '../../app/useRoute';
+import { IncidentChatDrawer } from '../../components/IncidentChatDrawer';
 import { ReportIncidentModal } from './ReportIncidentModal';
 
 interface ResidentIncidentsPageProps {
@@ -41,6 +43,7 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [chatIncident, setChatIncident] = useState<Incident | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   const openIncidents = data.incidents.filter((i) => i.status !== 'resolu');
@@ -354,11 +357,16 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
               {filteredIncidents.map((inc) => {
                 const isResolved = inc.status === 'resolu';
                 const step = isResolved ? 3 : inc.status === 'en_cours' ? 2 : 1;
+                const msgCount = (inc.messages || []).length;
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={inc.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedIncident(inc)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') setSelectedIncident(inc);
+                    }}
                     className={`text-start bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs hover:shadow-md transition-all space-y-3.5 cursor-pointer ${
                       inc.priority === 'urgente' && !isResolved
                         ? 'border-rose-300 dark:border-rose-800/80'
@@ -449,12 +457,28 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
                       <span className="truncate">
                         {inc.location} · {formatDateFr(inc.reportedDate, lang)}
                       </span>
-                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">
-                        <span>{lang === 'ar' ? 'التفاصيل' : 'Détails'}</span>
-                        <ChevronRight className={`w-3.5 h-3.5 ${isRtl ? 'rotate-180' : ''}`} />
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setChatIncident(inc);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold cursor-pointer"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          <span>
+                            {lang === 'ar' ? 'محادثة' : 'Chat Président'}
+                            {msgCount > 0 ? ` (${msgCount})` : ''}
+                          </span>
+                        </button>
+                        <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
+                          <span>{lang === 'ar' ? 'التفاصيل' : 'Détails'}</span>
+                          <ChevronRight className={`w-3.5 h-3.5 ${isRtl ? 'rotate-180' : ''}`} />
+                        </span>
+                      </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -661,6 +685,22 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
             )}
 
             <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = selectedIncident;
+                  setSelectedIncident(null);
+                  setChatIncident(target);
+                }}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer shadow-xs"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>
+                  {lang === 'ar'
+                    ? `فتح المحادثة المباشرة مع الرئيس (${(selectedIncident.messages || []).length})`
+                    : `Ouvrir le Chat avec le Président (${(selectedIncident.messages || []).length})`}
+                </span>
+              </button>
               <p className="text-[11px] text-slate-500">
                 {lang === 'ar'
                   ? 'هل لاحظت عاجلاً جديداً أو تعطل المصعد؟ تواصل فوراً مع رئيس مكتب السانديك أو أرقام الطوارئ.'
@@ -669,7 +709,7 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
               <div className="flex flex-wrap gap-2">
                 <a
                   href={`tel:${data.building.syndicPhone}`}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-semibold"
                 >
                   <Phone className="w-4 h-4" />
                   <span>{t('contactSyndic')}</span>
@@ -698,8 +738,17 @@ export const ResidentIncidentsPage: React.FC<ResidentIncidentsPageProps> = ({ on
           syndicPhone={data.building.syndicPhone}
           onClose={() => setIsReportModalOpen(false)}
           onSubmit={reportResidentIncident}
+          onIncidentCreated={(inc) => setChatIncident(inc)}
         />
       )}
+
+      <IncidentChatDrawer
+        incident={chatIncident}
+        apartments={data.apartments}
+        syndicPresident={data.building.syndicPresident}
+        syndicPhone={data.building.syndicPhone}
+        onClose={() => setChatIncident(null)}
+      />
     </div>
   );
 };
